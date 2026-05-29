@@ -1,6 +1,6 @@
 # PointerGestureKit
 
-[![CI](https://github.com/naviapps/pointer-gesture-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/naviapps/pointer-gesture-kit/actions/workflows/ci.yml)
+[![CI](https://github.com/naviapps/pointer-gesture-kit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/naviapps/pointer-gesture-kit/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fnaviapps%2Fpointer-gesture-kit%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/naviapps/pointer-gesture-kit)
 [![Supported platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fnaviapps%2Fpointer-gesture-kit%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/naviapps/pointer-gesture-kit)
