@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible PointerGestureKit issue.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include vulnerability details, secrets, tokens, personal data, private logs,
+        local paths, private app metadata, or app-specific internal references. Use SECURITY.md
+        for security reports.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the issue in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Include package, macOS, toolchain, host-app, permission, and input-device details.
+      placeholder: |
+        - PointerGestureKit version or commit:
+        - macOS version:
+        - Swift or Xcode version:
+        - Product: PointerGestureKit / PointerGestureKitCoreGraphics
+        - Host app sandboxed: yes/no
+        - Accessibility permission: granted / denied / unknown
+        - Input device: mouse / trackpad / other
+        - Reproducibility: always / sometimes / once
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >-
+        Provide the smallest code sample, test case, or focused steps that reproduce the issue.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: >-
+        Describe the gesture state, event disposition, callback, or public API value you
+        expected.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: >-
+        Include the exact public error, state snapshot, callback behavior, assertion, or visible
+        behavior. Redact sensitive values.
+    validations:
+      required: true
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add any other public, non-sensitive context that helps explain the issue.

@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a focused PointerGestureKit improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include vulnerability details, secrets, tokens, personal data, private logs,
+        local paths, private app metadata, or app-specific internal references.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the requested improvement in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Describe the host-app or library integration problem this would solve.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: >-
+        Explain why this belongs in PointerGestureKit's gesture recognition, event source, Core
+        Graphics integration, observation, or documentation rather than the host app.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the API, behavior, documentation, tests, or packaging change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >-
+        Describe host-app workarounds, separate package designs, or existing APIs you
+        considered.
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add any other public, non-sensitive context that helps explain the request.
