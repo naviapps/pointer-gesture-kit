@@ -1,6 +1,6 @@
 /// Supplies normalized input events from a live platform source.
 @MainActor
-public protocol GestureEventSource: AnyObject {
+public protocol GestureEventSource: AnyObject, Sendable {
   /// Starts the event source with the supplied event handler.
   ///
   /// Implementations should pass normalized input events to the handler and apply the returned

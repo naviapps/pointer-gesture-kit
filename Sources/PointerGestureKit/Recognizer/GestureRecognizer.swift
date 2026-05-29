@@ -118,8 +118,83 @@ public final class GestureRecognizer<Match: Sendable> {
     areModifiersSatisfied = configuration.areModifiersSatisfied
   }
 
-  isolated deinit {
-    stopRuntimeResources()
-    cancelSnapshotNotification()
+  deinit {
+    let cleanup = GestureRecognizerDeinitCleanup(
+      eventSource: eventSource,
+      startupRetryTask: startupRetryTask,
+      sessionExpirationTask: sessionExpirationTask,
+      snapshotNotificationTask: snapshotNotificationTask,
+      replayRequest: Self.deinitReplayRequest(
+        session: session,
+        pendingButtonInput: pendingButtonInput,
+        recognitionButton: recognitionButton
+      ),
+      onReplayRequested: onReplayRequested
+    )
+
+    if Thread.isMainThread {
+      MainActor.assumeIsolated {
+        cleanup.run()
+      }
+    } else {
+      Task { @MainActor in
+        cleanup.run()
+      }
+    }
+  }
+
+  private nonisolated static func deinitReplayRequest(
+    session: GestureSession?,
+    pendingButtonInput: PendingButtonInput?,
+    recognitionButton: PointerButton
+  ) -> GestureReplayRequest? {
+    if let session {
+      if session.recognition.isCapturingGesture {
+        return .release(
+          button: recognitionButton,
+          at: deinitReleasePoint(for: session)
+        )
+      }
+
+      guard let replayPoint = session.consumedButtonInput.fallbackReplayPoint else { return nil }
+      return .consumedButtonInput(
+        button: recognitionButton,
+        points: session.consumedButtonInput.points,
+        clickAt: replayPoint
+      )
+    }
+
+    guard let pendingButtonInput else { return nil }
+    return .consumedButtonInput(
+      button: recognitionButton,
+      points: pendingButtonInput.consumedButtonPoints,
+      clickAt: pendingButtonInput.startPoint
+    )
+  }
+
+  private nonisolated static func deinitReleasePoint(for session: GestureSession) -> GesturePoint {
+    session.consumedButtonInput.fallbackReplayPoint
+      ?? session.trace.rawPoints.last
+      ?? session.startPoint
+  }
+}
+
+private struct GestureRecognizerDeinitCleanup: @unchecked Sendable {
+  let eventSource: any GestureEventSource
+  let startupRetryTask: Task<Void, Never>?
+  let sessionExpirationTask: Task<Void, Never>?
+  let snapshotNotificationTask: Task<Void, Never>?
+  let replayRequest: GestureReplayRequest?
+  let onReplayRequested: @MainActor @Sendable (GestureReplayRequest) -> Void
+
+  @MainActor
+  func run() {
+    startupRetryTask?.cancel()
+    if let replayRequest {
+      onReplayRequested(replayRequest)
+    }
+    sessionExpirationTask?.cancel()
+    snapshotNotificationTask?.cancel()
+    eventSource.stop()
   }
 }
