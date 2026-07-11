@@ -5,9 +5,8 @@ import PointerGestureKit
 
 @MainActor
 final class GestureRecognizerSessionExpirationTests: XCTestCase {
-  private static let shortExpirationSleepNanoseconds: UInt64 = 30_000_000
+  private static let shortExpirationTimeout: TimeInterval = 0.03
   private static let completedGestureExpirationDuration: TimeInterval = 0.03
-  private static let completedGestureExpirationSleepNanoseconds: UInt64 = 60_000_000
 
   func testActiveSessionExpirationRequestsReleaseAndClearsTrace() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
@@ -26,7 +25,7 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 30, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 10))
     )
 
     await XCTAssertEventually(timeout: 1) {
@@ -35,13 +34,13 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
     }
 
     XCTAssertEqual(recognizer.snapshot.status.lastFailure, .gestureSessionExpired)
-    XCTAssertEqual(replayRequests, [.release(button: .secondary, at: .init(x: 30, y: 10))])
+    assertReplayRequests(replayRequests, [.release(button: .secondary, at: .init(x: 30, y: 10))])
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     XCTAssertFalse(recognizer.snapshot.trace.isVisible)
     XCTAssertTrue(recognizer.snapshot.trace.rawPoints.isEmpty)
   }
 
-  func testStoppedSessionExpirationReplaysConsumedButtonInput() async {
+  func testUnmatchedStoppedSessionReplaysDragStartWithoutWaitingForExpiration() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
 
@@ -57,24 +56,26 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 30, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 10))
     )
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+    XCTAssertTrue(recognizer.snapshot.trace.directions.isEmpty)
 
-    await XCTAssertEventually(timeout: 1) {
-      recognizer.snapshot.status.lastFailure == .gestureSessionExpired
+    await XCTAssertNotEventually(timeout: Self.shortExpirationTimeout) {
+      recognizer.snapshot.status.lastFailure != nil
     }
 
-    XCTAssertEqual(recognizer.snapshot.status.lastFailure, .gestureSessionExpired)
-    XCTAssertEqual(
+    XCTAssertNil(recognizer.snapshot.status.lastFailure)
+    assertReplayRequests(
       replayRequests,
-      [.drag(button: .secondary, points: [.init(x: 10, y: 10), .init(x: 30, y: 10)])]
+      [.dragStart(button: .secondary, points: [.init(x: 10, y: 10), .init(x: 30, y: 10)])]
     )
     XCTAssertFalse(recognizer.snapshot.trace.isVisible)
     XCTAssertTrue(recognizer.snapshot.trace.rawPoints.isEmpty)
   }
 
-  func testPendingButtonInputDoesNotScheduleSessionExpiration() async throws {
+  func testPendingButtonInputExpirationReplaysClickAndClearsInput() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
 
@@ -86,26 +87,76 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
     )
 
     recognizer.start()
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       ),
       .consume
     )
 
-    try await Task.sleep(nanoseconds: Self.shortExpirationSleepNanoseconds)
+    await XCTAssertEventually(timeout: 1) {
+      recognizer.snapshot.status.lastFailure == .gestureSessionExpired
+        && replayRequests == [.click(button: .secondary, at: .init(x: 10, y: 10))]
+    }
 
-    XCTAssertNil(recognizer.snapshot.status.lastFailure)
+    XCTAssertEqual(recognizer.snapshot.status.lastFailure, .gestureSessionExpired)
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
-    XCTAssertTrue(replayRequests.isEmpty)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 10, y: 10))
       ),
+      .passThrough
+    )
+    assertReplayRequests(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
+  }
+
+  func testMovedPendingButtonInputBelowStartDistanceExpirationReplaysClickAndClearsInput() async {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    var replayRequests: [GestureReplayRequest] = []
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: makeSessionExpirationConfiguration(
+        minimumGestureStartAxisDistance: 20,
+        onReplayRequested: { replayRequests.append($0) }
+      )
+    )
+
+    recognizer.start()
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+      ),
       .consume
     )
-    XCTAssertEqual(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 19, y: 10))
+      ),
+      .consume
+    )
+
+    await XCTAssertEventually(timeout: 1) {
+      recognizer.snapshot.status.lastFailure == .gestureSessionExpired
+        && replayRequests == [.click(button: .secondary, at: .init(x: 10, y: 10))]
+    }
+
+    XCTAssertEqual(recognizer.snapshot.status.lastFailure, .gestureSessionExpired)
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 20, y: 10))
+      ),
+      .passThrough
+    )
+    assertReplayRequests(
+      replayRequests,
+      [.click(button: .secondary, at: .init(x: 10, y: 10))]
+    )
   }
 
   func testSuccessfulGestureStartClearsStaleSessionExpirationFailure() async {
@@ -113,7 +164,9 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
 
     let recognizer = GestureRecognizer<UUID>(
       eventSource: eventSource,
-      configuration: makeSessionExpirationConfiguration()
+      configuration: makeSessionExpirationConfiguration(
+        makeMatcher: { _ in Self.makeRightGestureMatcher() }
+      )
     )
 
     recognizer.start()
@@ -121,14 +174,14 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 30, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 10))
     )
 
     await XCTAssertEventually(timeout: 1) {
       recognizer.snapshot.status.lastFailure == .gestureSessionExpired
     }
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 40, y: 10))
       ),
@@ -137,7 +190,7 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
   }
 
-  func testNilMaximumGestureSessionDurationDisablesSessionExpiration() async throws {
+  func testNilMaximumGestureSessionDurationDisablesSessionExpiration() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
 
     let recognizer = GestureRecognizer<UUID>(
@@ -153,22 +206,26 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 30, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 10))
     )
 
-    try await Task.sleep(nanoseconds: Self.shortExpirationSleepNanoseconds)
+    await XCTAssertNotEventually(timeout: Self.shortExpirationTimeout) {
+      recognizer.snapshot.status.lastFailure != nil
+        || !recognizer.snapshot.status.isCapturingGesture
+    }
 
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
     XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
   }
 
-  func testCompletedGestureCancelsPendingSessionExpiration() async throws {
+  func testCompletedGestureCancelsPendingSessionExpiration() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
 
     let recognizer = GestureRecognizer<UUID>(
       eventSource: eventSource,
       configuration: makeSessionExpirationConfiguration(
+        makeMatcher: { _ in Self.makeRightGestureMatcher() },
         maximumGestureSessionDuration: Self.completedGestureExpirationDuration,
         onReplayRequested: { replayRequests.append($0) }
       )
@@ -179,26 +236,28 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 30, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 10))
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 30, y: 10))
       ),
       .consume
     )
 
-    try await Task.sleep(nanoseconds: Self.completedGestureExpirationSleepNanoseconds)
+    await XCTAssertNotEventually(timeout: Self.completedGestureExpirationTimeout) {
+      recognizer.snapshot.status.lastFailure != nil
+    }
 
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
-    XCTAssertEqual(
+    assertReplayRequests(
       replayRequests,
-      [.drag(button: .secondary, points: [.init(x: 10, y: 10), .init(x: 30, y: 10)])]
+      [.release(button: .secondary, at: .init(x: 30, y: 10))]
     )
   }
 
-  func testStoppingRecognizerCancelsPendingSessionExpiration() async throws {
+  func testStoppingRecognizerCancelsPendingSessionExpiration() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
 
     let recognizer = GestureRecognizer<UUID>(
@@ -211,11 +270,14 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 30, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 10))
     )
 
     recognizer.stop()
-    try await Task.sleep(nanoseconds: Self.shortExpirationSleepNanoseconds)
+    await XCTAssertNotEventually(timeout: Self.shortExpirationTimeout) {
+      recognizer.snapshot.status.lastFailure != nil
+        || recognizer.snapshot.status.isCapturingGesture
+    }
 
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
@@ -226,6 +288,7 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       @escaping @MainActor @Sendable (GestureRecognitionContext?) -> GesturePatternMatcher<UUID> =
       { _ in GesturePatternMatcher<UUID>() },
     maximumGestureSessionDuration: TimeInterval? = 0.01,
+    minimumGestureStartAxisDistance: Double = 0,
     onReplayRequested: @escaping @MainActor @Sendable (GestureReplayRequest) -> Void = { _ in }
   ) -> GestureRecognizerConfiguration<UUID> {
     makeGestureRecognizerTestConfiguration(
@@ -233,7 +296,7 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
       onReplayRequested: onReplayRequested,
       areModifiersSatisfied: { _, _ in true },
       tuning: .testing(
-        minimumGestureStartAxisDistance: 0,
+        minimumGestureStartAxisDistance: minimumGestureStartAxisDistance,
         minimumDirectionChangeAxisDistance: 0,
         maximumGestureSessionDuration: maximumGestureSessionDuration
       )
@@ -244,5 +307,9 @@ final class GestureRecognizerSessionExpirationTests: XCTestCase {
     var matcher = GesturePatternMatcher<UUID>()
     matcher.register(pattern: [.right], match: UUID())
     return matcher
+  }
+
+  private static var completedGestureExpirationTimeout: TimeInterval {
+    completedGestureExpirationDuration * 2
   }
 }

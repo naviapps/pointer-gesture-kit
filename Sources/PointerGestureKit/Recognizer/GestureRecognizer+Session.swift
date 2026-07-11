@@ -9,9 +9,9 @@ extension GestureRecognizer {
   func beginGestureSession(
     at point: GesturePoint,
     consumedPoints: [GesturePoint],
-    context: GestureRecognitionContext?
+    matcherCursor: GesturePatternMatcher<Match>?,
+    isRecordingSession: Bool
   ) {
-    lastRecordedDirections = []
     let sessionID = UUID()
     let newSession = GestureSession(
       sessionID: sessionID,
@@ -21,10 +21,12 @@ extension GestureRecognizer {
         publishedRawPointCount: 1,
         directionEndpoints: [point],
         directions: [],
+        tailPoint: point,
         isVisible: false
       ),
       recognition: GestureSessionRecognitionState(
-        matcherCursor: makeMatcher(context),
+        matcherCursor: isRecordingSession ? nil : matcherCursor,
+        isRecordingSession: isRecordingSession,
         isCapturingGesture: true
       ),
       consumedButtonInput: ConsumedButtonInputState(
@@ -35,12 +37,12 @@ extension GestureRecognizer {
     )
     session = newSession
     updatePublishedState(from: newSession, publishRawPoints: true)
-    scheduleSessionExpirationIfNeeded(for: sessionID)
+    scheduleSessionExpirationIfNeeded(forSessionID: sessionID)
   }
 
   func updateGestureSession(
     to next: GesturePoint,
-    forcePublish: Bool = false
+    publishRawPointsImmediately: Bool = false
   ) {
     guard isReady, var currentSession = session else { return }
 
@@ -54,25 +56,38 @@ extension GestureRecognizer {
     guard let lastDirectionEndpoint = currentSession.trace.directionEndpoints.last else { return }
 
     currentSession.trace.rawPoints.append(next)
-    trimBuffer(&currentSession)
+    currentSession.trace.tailPoint = next
+    trimRawPointBuffer(&currentSession)
 
-    currentSession.trace.isVisible =
-      currentSession.trace.isVisible || shouldShowTrace(for: currentSession, next: next)
+    let hasReachedStartDistance = hasReachedTraceStartDistance(for: currentSession, next: next)
 
-    let didAcceptNewDirection = updateDirectionState(
+    let previousDirectionCount = currentSession.trace.directions.count
+    let didUpdateTraceGeometry = advanceGestureSession(
       for: &currentSession,
       next: next,
       lastDirectionEndpoint: lastDirectionEndpoint
     )
+    let didAppendDirection = currentSession.trace.directions.count > previousDirectionCount
+    currentSession.trace.isVisible = shouldRevealTrace(
+      for: currentSession,
+      hasReachedStartDistance: hasReachedStartDistance
+    )
 
+    let stoppedCapturingGesture = !currentSession.recognition.isCapturingGesture
+    let shouldPublishTailPoint = currentSession.trace.isVisible
     let publishRawPoints =
-      forcePublish || shouldPublishRawPoints(in: currentSession) || didAcceptNewDirection
+      publishRawPointsImmediately || shouldPublishRawPointBatch(in: currentSession)
+      || didAppendDirection || stoppedCapturingGesture
     if publishRawPoints {
       currentSession.trace.publishedRawPointCount = currentSession.trace.rawPoints.count
     }
 
     session = currentSession
-    updatePublishedState(from: currentSession, publishRawPoints: publishRawPoints)
+    updatePublishedState(
+      from: currentSession,
+      publishRawPoints: publishRawPoints,
+      notifyTrace: publishRawPoints || didUpdateTraceGeometry || shouldPublishTailPoint
+    )
   }
 
   func completeGestureSession(
@@ -96,13 +111,13 @@ extension GestureRecognizer {
       var stoppedSession = activeSession
       appendConsumedButtonPoint(finalPoint, to: &stoppedSession)
       let points = stoppedSession.consumedButtonInput.points
-      return replayedConsumedButtonInputOutcome(
+      return consumedButtonReplayOutcome(
         points: points,
         clickAt: consumedButtonClickReplayPoint(for: stoppedSession)
       )
     }
 
-    updateGestureSession(to: finalPoint, forcePublish: true)
+    updateGestureSession(to: finalPoint, publishRawPointsImmediately: true)
 
     guard var currentSession = session else {
       return clickOutcome(at: finalPoint)
@@ -117,16 +132,16 @@ extension GestureRecognizer {
 
     if let fallbackReplayPoint = currentSession.consumedButtonInput.fallbackReplayPoint {
       let points = currentSession.consumedButtonInput.points
-      return replayedConsumedButtonInputOutcome(
+      return consumedButtonReplayOutcome(
         points: points,
         clickAt: fallbackReplayPoint,
         match: match
       )
     }
 
-    if isRecordingModeEnabled {
+    if currentSession.recognition.isRecordingSession {
       let points = currentSession.consumedButtonInput.points
-      return replayedConsumedButtonInputOutcome(
+      return consumedButtonReplayOutcome(
         points: points,
         clickAt: currentSession.startPoint,
         match: match
@@ -136,17 +151,18 @@ extension GestureRecognizer {
     return releaseOutcome(at: finalPoint, match: match)
   }
 
-  func resetGestureSession() {
+  func resetGestureSession(discardPendingVisibleTraceNotifications: Bool = false) {
     pendingButtonInput = nil
     session = nil
-    clearPublishedState()
-    sessionExpirationTask?.cancel()
-    sessionExpirationTask = nil
+    clearPublishedState(
+      discardPendingVisibleTraceNotifications: discardPendingVisibleTraceNotifications)
+    inputExpirationTask?.cancel()
+    inputExpirationTask = nil
   }
 
   func cancelGestureSession() {
-    requestConsumedButtonInputReplayIfNeeded()
-    resetGestureSession()
+    requestInterruptedButtonInputReplayIfNeeded()
+    resetGestureSession(discardPendingVisibleTraceNotifications: true)
     lastFailure = nil
   }
 
@@ -158,12 +174,12 @@ extension GestureRecognizer {
       return nil
     }
 
-    if let currentMatch = session.recognition.matcherCursor?.currentMatch {
+    if let terminalMatch = session.recognition.matcherCursor?.completedMatch() {
       session.consumedButtonInput.fallbackReplayPoint = nil
-      return currentMatch
+      return terminalMatch
     }
 
-    if !isRecordingModeEnabled {
+    if !session.recognition.isRecordingSession {
       ensureFallbackReplayPoint(in: &session)
     }
 
@@ -174,7 +190,10 @@ extension GestureRecognizer {
     at point: GesturePoint,
     match: Match? = nil
   ) -> GestureSessionOutcome {
-    GestureSessionOutcome(replayRequest: .click(button: recognitionButton, at: point), match: match)
+    GestureSessionOutcome(
+      replayRequest: .click(button: configuration.recognitionButton, at: point),
+      match: match
+    )
   }
 
   private func releaseOutcome(
@@ -182,19 +201,19 @@ extension GestureRecognizer {
     match: Match? = nil
   ) -> GestureSessionOutcome {
     GestureSessionOutcome(
-      replayRequest: .release(button: recognitionButton, at: point),
+      replayRequest: .release(button: configuration.recognitionButton, at: point),
       match: match
     )
   }
 
-  private func replayedConsumedButtonInputOutcome(
+  private func consumedButtonReplayOutcome(
     points: [GesturePoint],
     clickAt point: GesturePoint,
     match: Match? = nil
   ) -> GestureSessionOutcome {
     GestureSessionOutcome(
-      replayRequest: .consumedButtonInput(
-        button: recognitionButton,
+      replayRequest: Self.consumedButtonReplayRequest(
+        button: configuration.recognitionButton,
         points: points,
         clickAt: point
       ),

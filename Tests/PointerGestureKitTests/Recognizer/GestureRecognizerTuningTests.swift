@@ -2,8 +2,8 @@ import PointerGestureKit
 import XCTest
 
 final class GestureRecognizerTuningTests: XCTestCase {
-  func testInitializerPreservesValidCustomValues() {
-    let tuning = GestureRecognizerTuning(
+  func testValidatedPreservesCustomValues() throws {
+    let tuning = try GestureRecognizerTuning.validated(
       minimumGestureStartAxisDistance: 1.5,
       minimumDirectionChangeAxisDistance: 2.5,
       maximumGestureSessionDuration: nil,
@@ -18,108 +18,130 @@ final class GestureRecognizerTuningTests: XCTestCase {
     XCTAssertEqual(tuning.eventSourceStartRetryDelays, [0, 0.125, 3])
   }
 
-  func testMaximumRawPointCountIsAtLeastOne() {
-    XCTAssertEqual(
-      GestureRecognizerTuning(maximumRawPointCount: 0).maximumRawPointCount, 1)
-    XCTAssertEqual(
-      GestureRecognizerTuning(maximumRawPointCount: -10).maximumRawPointCount, 1)
+  func testValidatedRejectsInvalidDistances() {
+    XCTAssertThrowsError(
+      try GestureRecognizerTuning.validated(minimumGestureStartAxisDistance: -1)
+    ) { error in
+      XCTAssertEqual(
+        error as? GestureRecognizerTuning.ValidationError,
+        .invalidMinimumGestureStartAxisDistance
+      )
+    }
+    XCTAssertThrowsError(
+      try GestureRecognizerTuning.validated(minimumDirectionChangeAxisDistance: .nan)
+    ) { error in
+      XCTAssertEqual(
+        error as? GestureRecognizerTuning.ValidationError,
+        .invalidMinimumDirectionChangeAxisDistance
+      )
+    }
   }
 
-  func testEventSourceStartRetryDelaysDiscardInvalidValuesAndPreserveExplicitZero() {
-    let tuning = GestureRecognizerTuning(
-      eventSourceStartRetryDelays: [-1, .nan, .infinity, 0, 0.25]
+  func testValidatedRejectsInvalidDurationAndPointCount() {
+    XCTAssertThrowsError(
+      try GestureRecognizerTuning.validated(maximumGestureSessionDuration: 0)
+    ) { error in
+      XCTAssertEqual(
+        error as? GestureRecognizerTuning.ValidationError,
+        .invalidMaximumGestureSessionDuration
+      )
+    }
+    XCTAssertThrowsError(try GestureRecognizerTuning.validated(maximumRawPointCount: 0)) { error in
+      XCTAssertEqual(
+        error as? GestureRecognizerTuning.ValidationError,
+        .invalidMaximumRawPointCount
+      )
+    }
+  }
+
+  func testValidatedReportsInvalidRetryDelayIndex() {
+    XCTAssertThrowsError(
+      try GestureRecognizerTuning.validated(eventSourceStartRetryDelays: [0.1, .infinity])
+    ) { error in
+      XCTAssertEqual(
+        error as? GestureRecognizerTuning.ValidationError,
+        .invalidEventSourceStartRetryDelay(index: 1)
+      )
+    }
+  }
+
+  func testValidatedPreservesRetryOrderDuplicatesAndZero() throws {
+    let tuning = try GestureRecognizerTuning.validated(
+      eventSourceStartRetryDelays: [1, 0.25, 1, 0]
     )
-
-    XCTAssertEqual(tuning.eventSourceStartRetryDelays, [0, 0.25])
+    XCTAssertEqual(tuning.eventSourceStartRetryDelays, [1, 0.25, 1, 0])
   }
 
-  func testInvalidOnlyEventSourceStartRetryDelaysBecomeEmpty() {
-    let tuning = GestureRecognizerTuning(
-      eventSourceStartRetryDelays: [-1, .nan, .infinity]
-    )
-
-    XCTAssertTrue(tuning.eventSourceStartRetryDelays.isEmpty)
-  }
-
-  func testEmptyEventSourceStartRetryDelaysArePreserved() {
-    let tuning = GestureRecognizerTuning(eventSourceStartRetryDelays: [])
-
-    XCTAssertTrue(tuning.eventSourceStartRetryDelays.isEmpty)
-  }
-
-  func testRecognitionAxisDistancesAreNonNegativeAndFinite() {
-    let tuning = GestureRecognizerTuning(
-      minimumGestureStartAxisDistance: -.infinity,
-      minimumDirectionChangeAxisDistance: .nan,
-      maximumGestureSessionDuration: -1
-    )
-
-    XCTAssertEqual(tuning.minimumGestureStartAxisDistance, 0)
-    XCTAssertEqual(tuning.minimumDirectionChangeAxisDistance, 0)
-    XCTAssertNil(tuning.maximumGestureSessionDuration)
-  }
-
-  func testRecognitionAxisDistancesRejectNegativeValues() {
-    let tuning = GestureRecognizerTuning(
-      minimumGestureStartAxisDistance: -1,
-      minimumDirectionChangeAxisDistance: -2
-    )
-
-    XCTAssertEqual(tuning.minimumGestureStartAxisDistance, 0)
-    XCTAssertEqual(tuning.minimumDirectionChangeAxisDistance, 0)
-  }
-
-  func testMaximumGestureSessionDurationKeepsPositiveFiniteValue() {
-    let tuning = GestureRecognizerTuning(maximumGestureSessionDuration: 1.25)
-
-    XCTAssertEqual(tuning.maximumGestureSessionDuration, 1.25)
-  }
-
-  func testMaximumGestureSessionDurationRejectsNonPositiveAndNonFiniteValues() {
-    XCTAssertNil(
-      GestureRecognizerTuning(maximumGestureSessionDuration: -1)
-        .maximumGestureSessionDuration)
-    XCTAssertNil(
-      GestureRecognizerTuning(maximumGestureSessionDuration: 0)
-        .maximumGestureSessionDuration)
-    XCTAssertNil(
-      GestureRecognizerTuning(maximumGestureSessionDuration: .nan)
-        .maximumGestureSessionDuration)
-    XCTAssertNil(
-      GestureRecognizerTuning(maximumGestureSessionDuration: .infinity)
-        .maximumGestureSessionDuration)
-  }
-
-  func testDefaultTuningValuesAreStable() {
-    let tuning = GestureRecognizerTuning()
-
+  func testStandardValuesAreExpected() {
+    let tuning = GestureRecognizerTuning.standard
     XCTAssertEqual(tuning.minimumGestureStartAxisDistance, 10)
     XCTAssertEqual(tuning.minimumDirectionChangeAxisDistance, 25)
-    XCTAssertEqual(tuning.maximumGestureSessionDuration, 10)
-    XCTAssertEqual(tuning.maximumRawPointCount, 1000)
+    XCTAssertEqual(tuning.maximumGestureSessionDuration, 1)
+    XCTAssertEqual(tuning.maximumRawPointCount, 256)
     XCTAssertEqual(tuning.eventSourceStartRetryDelays, [0.25, 0.5, 1, 2, 4])
   }
 
-  func testTuningDoesNotExposeSerializationOrEnumerationContracts() {
-    XCTAssertFalse(GestureRecognizerTuning.self is any Codable.Type)
-    XCTAssertFalse(GestureRecognizerTuning.self is any RawRepresentable.Type)
-    XCTAssertFalse(GestureRecognizerTuning.self is any CaseIterable.Type)
-    XCTAssertFalse(GestureRecognizerTuning.self is any Error.Type)
+  func testTuningIsEquatableAndSendable() throws {
+    let tuning = try GestureRecognizerTuning.validated(maximumGestureSessionDuration: nil)
+    assertSendable(tuning)
+    assertSendable(GestureRecognizerTuning.ValidationError.invalidMaximumRawPointCount)
+    XCTAssertEqual(tuning, tuning)
   }
 
-  func testTuningIsHashableValue() {
-    let tuning = GestureRecognizerTuning(
-      minimumGestureStartAxisDistance: 1,
-      minimumDirectionChangeAxisDistance: 2,
-      maximumGestureSessionDuration: 3,
-      maximumRawPointCount: 4,
-      eventSourceStartRetryDelays: [5]
+  @MainActor
+  func testUpdateTuningAppliesToFutureGestureSessions() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    var matcher = GesturePatternMatcher<UUID>()
+    matcher.register(pattern: [.right], match: UUID())
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in matcher },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 100,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
     )
 
-    XCTAssertEqual(Set([tuning, tuning]).count, 1)
+    recognizer.start()
+    _ = eventSource.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero))
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 50, y: 0)))
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+
+    recognizer.cancelActiveGesture()
+    recognizer.updateTuning(
+      .testing(
+        minimumGestureStartAxisDistance: 10,
+        minimumDirectionChangeAxisDistance: 0
+      ))
+    _ = eventSource.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero))
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 50, y: 0)))
+
+    XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertEqual(recognizer.snapshot.trace.directions, [.right])
   }
 
-  func testTuningIsSendableValue() {
-    assertSendable(GestureRecognizerTuning())
+  @MainActor
+  func testUpdateTuningReportsWhetherTuningChanged() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let initialTuning = GestureRecognizerTuning.testing(
+      minimumGestureStartAxisDistance: 100,
+      minimumDirectionChangeAxisDistance: 0
+    )
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: makeGestureRecognizerTestConfiguration(tuning: initialTuning)
+    )
+
+    XCTAssertFalse(recognizer.updateTuning(initialTuning))
+    XCTAssertTrue(
+      recognizer.updateTuning(
+        .testing(
+          minimumGestureStartAxisDistance: 10,
+          minimumDirectionChangeAxisDistance: 0
+        )))
   }
 }

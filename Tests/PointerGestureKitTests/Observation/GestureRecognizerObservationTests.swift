@@ -4,34 +4,13 @@ import PointerGestureKit
 
 @MainActor
 final class GestureRecognizerObservationTests: XCTestCase {
-  func testObserveCoalescesStateChanges() async {
-    let eventSource = GestureEventSourceDouble(startResult: true)
-    let recognizer = makeRecognizer(eventSource: eventSource)
-
-    var callCount = 0
-    let token = recognizer.observe { _ in
-      callCount += 1
-    }
-
-    XCTAssertEqual(callCount, 1)  // initial delivery
-
-    recognizer.start()
-    await XCTAssertEventually(timeout: 0.2) { callCount >= 2 }
-    XCTAssertEqual(callCount, 2)
-
-    recognizer.stop()
-    await XCTAssertEventually(timeout: 0.2) { callCount >= 3 }
-    XCTAssertEqual(callCount, 3)
-
-    _ = token
-  }
-
-  func testObserveReceivesStoppedSnapshot() async {
+  func testObserveEmitsInitialReadyAndStoppedSnapshots() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
     let recognizer = makeRecognizer(eventSource: eventSource)
 
     var snapshots: [GestureRecognizerState] = []
     let token = recognizer.observe { snapshots.append($0) }
+    XCTAssertEqual(snapshots.map(\.status.lifecycle), [.idle])
 
     recognizer.start()
     await XCTAssertEventually(timeout: 0.2) { snapshots.contains { $0.status.lifecycle == .ready } }
@@ -46,6 +25,7 @@ final class GestureRecognizerObservationTests: XCTestCase {
 
     XCTAssertNotEqual(snapshots.last?.status.lifecycle, .ready)
     XCTAssertEqual(snapshots.last?.status.isCapturingGesture, false)
+    XCTAssertEqual(snapshots.map(\.status.lifecycle), [.idle, .ready, .idle])
 
     _ = token
   }
@@ -97,25 +77,13 @@ final class GestureRecognizerObservationTests: XCTestCase {
     XCTAssertEqual(callCount, countAfterCancel)
   }
 
-  func testCancelObservationFromNonMainActorStopsNotifications() async {
+  func testObservationTokenIsSendable() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     let recognizer = makeRecognizer(eventSource: eventSource)
 
-    var callCount = 0
-    let token = recognizer.observe { _ in
-      callCount += 1
-    }
-    XCTAssertEqual(callCount, 1)
+    let token = recognizer.observe { _ in }
 
-    await Task.detached {
-      token.cancel()
-    }.value
-    await Task.yield()
-
-    recognizer.start()
-    await XCTAssertNotEventually(timeout: 0.2) { callCount > 1 }
-
-    XCTAssertEqual(callCount, 1)
+    assertSendable(token)
   }
 
   func testCancelingObservationDuringNotificationDoesNotInterruptDelivery() async {
@@ -155,6 +123,36 @@ final class GestureRecognizerObservationTests: XCTestCase {
     _ = secondToken
   }
 
+  func testCancelingAnotherObservationDuringNotificationDoesNotInterruptDelivery() async {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let recognizer = makeRecognizer(eventSource: eventSource)
+
+    var secondToken: GestureObservationToken?
+    var firstCallCount = 0
+    var secondCallCount = 0
+
+    let firstToken = recognizer.observe { _ in
+      firstCallCount += 1
+      if firstCallCount > 1 {
+        secondToken?.cancel()
+      }
+    }
+    secondToken = recognizer.observe { _ in
+      secondCallCount += 1
+    }
+
+    recognizer.start()
+    await XCTAssertEventually(timeout: 0.2) {
+      firstCallCount >= 2 && secondCallCount >= 2
+    }
+
+    XCTAssertEqual(firstCallCount, 2)
+    XCTAssertEqual(secondCallCount, 2)
+
+    _ = firstToken
+    _ = secondToken
+  }
+
   func testStateChangeDuringObservationSchedulesFollowUpNotification() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
     let recognizer = makeRecognizer(eventSource: eventSource)
@@ -178,6 +176,37 @@ final class GestureRecognizerObservationTests: XCTestCase {
     _ = token
   }
 
+  func testObserverAddedDuringPendingNotificationDoesNotReceiveDuplicateCurrentSnapshot() async {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let recognizer = makeRecognizer(eventSource: eventSource)
+
+    var firstObserverSnapshots: [GestureRecognizerState] = []
+    let firstToken = recognizer.observe { state in
+      firstObserverSnapshots.append(state)
+    }
+
+    recognizer.start()
+
+    var secondObserverSnapshots: [GestureRecognizerState] = []
+    let secondToken = recognizer.observe { state in
+      secondObserverSnapshots.append(state)
+    }
+
+    XCTAssertEqual(secondObserverSnapshots.map(\.status.lifecycle), [.ready])
+
+    await XCTAssertEventually(timeout: 0.2) {
+      firstObserverSnapshots.map(\.status.lifecycle) == [.idle, .ready]
+    }
+    await XCTAssertNotEventually(timeout: 0.05) {
+      secondObserverSnapshots.count > 1
+    }
+
+    XCTAssertEqual(secondObserverSnapshots.map(\.status.lifecycle), [.ready])
+
+    _ = firstToken
+    _ = secondToken
+  }
+
   func testDroppingObservationTokenStopsNotifications() async {
     let eventSource = GestureEventSourceDouble(startResult: true)
     let recognizer = makeRecognizer(eventSource: eventSource)
@@ -190,6 +219,7 @@ final class GestureRecognizerObservationTests: XCTestCase {
     XCTAssertEqual(callCount, 1)
 
     token = nil
+    await Task.yield()
     recognizer.start()
     await XCTAssertNotEventually(timeout: 0.2) { callCount > 1 }
 

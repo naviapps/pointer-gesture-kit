@@ -14,6 +14,7 @@ func makeGestureRecognizerTestConfiguration<Match: Sendable>(
   isRecognitionEnabled: @escaping @MainActor @Sendable (GestureRecognitionContext?) -> Bool = {
     _ in true
   },
+  passesThroughEmptyMatcher: Bool = false,
   areModifiersSatisfied:
     @escaping @MainActor @Sendable (
       GestureModifierFlags,
@@ -28,6 +29,7 @@ func makeGestureRecognizerTestConfiguration<Match: Sendable>(
     recognitionButton: recognitionButton,
     recognitionContext: recognitionContext,
     isRecognitionEnabled: isRecognitionEnabled,
+    passesThroughEmptyMatcher: passesThroughEmptyMatcher,
     areModifiersSatisfied: areModifiersSatisfied,
     tuning: tuning
   )

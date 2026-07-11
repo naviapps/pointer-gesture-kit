@@ -1,11 +1,11 @@
 enum GestureMovementResolver {
   /// Returns the larger absolute coordinate delta between two points.
-  static func maximumAxisDelta(from start: GesturePoint, to end: GesturePoint) -> Double {
+  static func maximumAbsoluteAxisDelta(from start: GesturePoint, to end: GesturePoint) -> Double {
     max(abs(end.x - start.x), abs(end.y - start.y))
   }
 
-  /// Returns the dominant cardinal direction between two points.
-  static func dominantDirection(
+  /// Returns the cardinal direction on the dominant movement axis between two points.
+  static func dominantAxisDirection(
     from start: GesturePoint,
     to end: GesturePoint
   ) -> GestureDirection? {

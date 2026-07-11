@@ -13,7 +13,7 @@ extension PointerButton {
       self = .middle
     default:
       guard cgButtonNumber > 2, cgButtonNumber <= Int64(UInt32.max) else { return nil }
-      self.init(additionalButtonNumber: UInt32(cgButtonNumber))
+      self.init(auxiliaryButtonID: UInt32(cgButtonNumber))
     }
   }
 
@@ -21,39 +21,35 @@ extension PointerButton {
     if self == .primary { return .left }
     if self == .secondary { return .right }
     if self == .middle { return .center }
-    guard let additionalButtonNumber else { return nil }
-    return CGMouseButton(rawValue: additionalButtonNumber)
-  }
-
-  var usesOtherMouseEventTypes: Bool {
-    self == .middle || additionalButtonNumber != nil
+    guard let auxiliaryButtonID else { return nil }
+    return CGMouseButton(rawValue: auxiliaryButtonID)
   }
 
   var cgEventTypes: PointerButtonCGEventTypes {
     if self == .primary {
       return PointerButtonCGEventTypes(
         down: .leftMouseDown,
-        dragged: .leftMouseDragged,
+        moved: .leftMouseDragged,
         up: .leftMouseUp
       )
     }
     if self == .secondary {
       return PointerButtonCGEventTypes(
         down: .rightMouseDown,
-        dragged: .rightMouseDragged,
+        moved: .rightMouseDragged,
         up: .rightMouseUp
       )
     }
     return PointerButtonCGEventTypes(
       down: .otherMouseDown,
-      dragged: .otherMouseDragged,
+      moved: .otherMouseDragged,
       up: .otherMouseUp
     )
   }
 }
 
-struct PointerButtonCGEventTypes: Equatable, Sendable {
+struct PointerButtonCGEventTypes: Sendable {
   let down: CGEventType
-  let dragged: CGEventType
+  let moved: CGEventType
   let up: CGEventType
 }

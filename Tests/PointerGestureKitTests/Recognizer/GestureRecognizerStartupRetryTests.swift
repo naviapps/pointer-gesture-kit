@@ -43,13 +43,13 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero)),
       .passThrough
     )
   }
 
-  func testFailedStartWithoutRetryDelaysDoesNotRetryLater() async throws {
+  func testFailedStartWithoutRetryDelaysDoesNotRetryLater() async {
     let eventSource = GestureEventSourceDouble(startResults: [false, true])
 
     let configuration: GestureRecognizerConfiguration<UUID> =
@@ -63,7 +63,10 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
     )
 
     recognizer.start()
-    try await Task.sleep(nanoseconds: 50_000_000)
+
+    await XCTAssertNotEventually(timeout: 0.05) {
+      eventSource.startCount > 1
+    }
 
     XCTAssertEqual(recognizer.snapshot.status.lifecycle, .failed)
     XCTAssertEqual(
@@ -129,7 +132,7 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
   }
 
   func testCallingStartAgainCancelsPendingRetryAndRetriesImmediatelyAfterStartFailure()
-    async throws
+    async
   {
     let eventSource = GestureEventSourceDouble(startResults: [false, true])
 
@@ -150,7 +153,9 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
     XCTAssertEqual(eventSource.startCount, 2)
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    await XCTAssertNotEventually(timeout: 0.05) {
+      eventSource.startCount > 2
+    }
     XCTAssertEqual(recognizer.snapshot.status.lifecycle, .ready)
     XCTAssertEqual(eventSource.startCount, 2)
   }
@@ -176,7 +181,7 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
     XCTAssertEqual(eventSource.startCount, 2)
   }
 
-  func testStopCancelsPendingRetry() async throws {
+  func testStopCancelsPendingRetry() async {
     let eventSource = GestureEventSourceDouble(startResults: [false, true])
 
     let configuration: GestureRecognizerConfiguration<UUID> =
@@ -197,8 +202,35 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
     XCTAssertEqual(eventSource.stopCount, 1)
 
-    try await Task.sleep(nanoseconds: 50_000_000)
+    await XCTAssertNotEventually(timeout: 0.05) {
+      eventSource.startCount > 1
+    }
     XCTAssertEqual(eventSource.startCount, 1)
+  }
+
+  func testReleaseWhileStartupRetryIsPendingDoesNotRetainRecognizer() async {
+    let eventSource = GestureEventSourceDouble(startResult: false)
+    weak var weakRecognizer: GestureRecognizer<UUID>?
+    var recognizer: GestureRecognizer<UUID>? = GestureRecognizer(
+      eventSource: eventSource,
+      configuration: makeGestureRecognizerTestConfiguration(
+        tuning: .testing(eventSourceStartRetryDelays: [0.01])
+      )
+    )
+    weakRecognizer = recognizer
+
+    recognizer?.start()
+    await XCTAssertEventually(timeout: 1) {
+      eventSource.startCount >= 2
+    }
+
+    recognizer = nil
+
+    await XCTAssertEventually(timeout: 1) {
+      weakRecognizer == nil && eventSource.stopCount == 1
+    }
+    XCTAssertNil(weakRecognizer)
+    XCTAssertEqual(eventSource.stopCount, 1)
   }
 
   func testHugeFiniteEventSourceStartRetryDelayCanBeScheduled() async {
@@ -218,30 +250,6 @@ final class GestureRecognizerStartupRetryTests: XCTestCase {
     await Task.yield()
 
     XCTAssertEqual(recognizer.snapshot.status.lifecycle, .retrying)
-    XCTAssertEqual(
-      recognizer.snapshot.status.lastFailure,
-      GestureRecognizerFailure.eventSourceStartFailed
-    )
-    XCTAssertEqual(eventSource.startCount, 1)
-  }
-
-  func testInvalidOnlyEventSourceStartRetryDelaysDoNotScheduleRetry() async throws {
-    let eventSource = GestureEventSourceDouble(startResults: [false, true])
-
-    let configuration: GestureRecognizerConfiguration<UUID> =
-      makeGestureRecognizerTestConfiguration(
-        tuning: .testing(eventSourceStartRetryDelays: [-1, .nan, .infinity])
-      )
-
-    let recognizer = GestureRecognizer<UUID>(
-      eventSource: eventSource,
-      configuration: configuration
-    )
-
-    recognizer.start()
-    try await Task.sleep(nanoseconds: 50_000_000)
-
-    XCTAssertEqual(recognizer.snapshot.status.lifecycle, .failed)
     XCTAssertEqual(
       recognizer.snapshot.status.lastFailure,
       GestureRecognizerFailure.eventSourceStartFailed

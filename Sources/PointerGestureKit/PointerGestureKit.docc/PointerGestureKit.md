@@ -7,24 +7,26 @@ Recognize pointer gestures from platform-neutral input events.
 PointerGestureKit contains the recognizer core, direction model, matcher,
 recognition policy inputs, observable state, and event-source protocol used to
 turn pointer-button drag paths into app-owned matches. Recognition defaults to
-the secondary button and can be configured for primary, middle, or additional
+the secondary button and can be configured for primary, middle, or auxiliary
 pointer buttons.
 Gesture movement is recorded as one of four cardinal directions: up, down, left,
 and right. Movement without a dominant axis does not add a direction.
-`GesturePoint` values use gesture coordinates where positive vertical movement
-resolves as down.
+`GesturePoint` values use gesture coordinates where positive vertical movement resolves as down.
+The recognizer passes through input with non-finite coordinates.
 
 The core target does not depend on AppKit, Core Graphics, or live input capture. Host apps provide
 event sources to ``GestureRecognizer`` and provide recognition-context policy plus callbacks through
 ``GestureRecognizerConfiguration``. Trace rendering, Accessibility permission presentation,
 persistence, telemetry, and command execution stay outside this target.
+Use ``GestureInputEvent/Kind`` to distinguish pointer-button down, move, and up input events.
 
 Use ``GesturePatternMatcher`` to map direction patterns to app-owned match values, then create a
 ``GestureRecognizer`` with an event source and configuration.
 
 ## Usage
 
-Register app-owned matches with ``GesturePatternMatcher``:
+Register app-owned matches with ``GesturePatternMatcher`` and pass the matcher to a
+``GestureRecognizer`` configuration:
 
 ```swift
 import PointerGestureKit
@@ -34,80 +36,24 @@ enum AppCommand: Sendable {
   case focusSearch
 }
 
-var matcher = GesturePatternMatcher<AppCommand>()
-matcher.register(pattern: [.down, .right], match: .showInspector)
-matcher.register(pattern: [.up, .left], match: .focusSearch)
+@MainActor
+func makeGestureMatcher() -> GesturePatternMatcher<AppCommand> {
+  var matcher = GesturePatternMatcher<AppCommand>()
+  matcher.register(pattern: [.down, .right], match: .showInspector)
+  matcher.register(pattern: [.up, .left], match: .focusSearch)
+  return matcher
+}
 ```
 
-Pattern matching is exact: the completed gesture direction sequence must match a registered pattern.
-Use ``GesturePatternCatalog`` when a host-owned settings UI needs to validate configured patterns
-before building a matcher. It reports empty patterns and duplicate patterns, but shared prefixes are
-valid because matching is exact. Use ``GesturePatternCatalog/ValidationIssue/patternIndex`` to
-highlight the invalid host-defined pattern row and
-``GesturePatternCatalog/ValidationIssue/relatedPatternIndex`` to reference the original row for
-duplicates. The catalog validates only pattern shape; host apps still own command names, command
-conflicts, persistence, and migration policy.
-``GesturePatternMatcher/register(pattern:match:)`` returns `false` for empty patterns and otherwise
-stores or replaces the exact pattern match.
-
-Configure recognition callbacks, policy, and tuning through
-``GestureRecognizerConfiguration``. The recognizer keeps gesture-session state
-and emits app-owned matches; the host app decides how to execute commands.
-Use the `onReplayRequested` initializer argument to handle ``GestureReplayRequest``
-values after the recognizer consumes pointer-button input. Plain clicks request
-a full click for the configured recognition button. Unmatched or recording-mode
-drags request the consumed drag sequence so drag workflows can be restored;
-a recognized match requests only the consumed button release. Replay requests expose their
-configured ``GestureReplayRequest/button`` and final ``GestureReplayRequest/location`` for
-host-side routing or diagnostics. Stopping or cancelling while consumed pointer-button input is
-active also emits the replay needed to leave host input state consistent. Use the `onMatch`
-initializer argument to receive the configured app-owned match value.
-
-Recognition uses the secondary button by default. Set the `recognitionButton`
-initializer argument when gestures should start from the primary, middle, or an
-additional pointer button, and provide an event source that emits the same
-button.
-
-Use the `recognitionContext` initializer argument only when matching or policy
-depends on the app, window, or surface under the gesture start point. Apps that
-only need a current/frontmost context can ignore the point argument. Return
-`nil` when no host context is active. Use `isRecognitionEnabled` to disable
-recognition for a context without encoding that decision into the context
-identifier. ``GestureRecognitionContext/init(identifier:)`` trims surrounding whitespace and
-returns `nil` for blank identifiers, matching the no-context path.
-
-Use ``GestureRecognizer/isRecordingModeEnabled`` only for teaching or recording
-gesture patterns. Recording mode captures directions without requiring modifier
-approval or a registered match, but it still respects the `isRecognitionEnabled`
-initializer argument for the active context. Normal recognition mode also uses
-the `areModifiersSatisfied` initializer argument plus the configured matcher.
-A completed recording-mode drag still emits a consumed drag-sequence replay request
-for the configured recognition button. Read
-``GestureRecognizerState/Status/lastRecordedDirections`` from status observation when the host needs
-the most recently completed sequence.
-
-Use ``GestureRecognizer/start()`` to request event-source startup and
-``GestureRecognizer/stop()`` to stop recognition, cancel pending startup retries,
-clear active gesture state, and reset the last failure. Use
-``GestureRecognizer/retryStartNow()`` only after a previous `start()` request
-when the host wants to retry event-source startup immediately. Use
-``GestureRecognizer/cancelActiveGesture()`` for user-driven cancellation of an
-in-progress gesture; when no gesture session or pending button input exists, it
-is a no-op and preserves the current failure state.
-
-Use ``GestureRecognizer/observe(_:)`` for combined snapshots. Use
-``GestureRecognizer/observeStatus(_:)`` or ``GestureRecognizer/observeTrace(_:)``
-when a UI only needs one portion of the snapshot; those observers emit their
-initial value immediately and then only emit when that portion changes. Use
-``GestureRecognizerState/Status/lifecycle`` for event-source startup UI. A `.failed`
-lifecycle means event-source startup failed with no scheduled retry; `.retrying`
-means the configured retry schedule is active. Use
-``GestureRecognizerState/Status/isCapturingGesture`` for active gesture capture state
-and ``GestureRecognizerState/Status/isRecordingModeEnabled`` for the host-controlled
-teaching/recording mode. Use ``GestureRecognizerState/Status/lastRecordedDirections`` for the most
-recently completed sequence and ``GestureRecognizerState/Status/lastFailure`` for startup, policy,
-modifier, and session-expiration failures. ``GestureRecognizerState/Trace/directionEndpoints``
-contains the trace start point plus one normalized endpoint per direction for trace rendering.
+Pattern matching is exact. During normal recognition, trace visibility begins when the current
+direction sequence is a valid matcher prefix; completed matches still require an exact registered
+pattern. Host apps validate settings-level conflicts before building a matcher.
+Use ``GestureRecognizerConfiguration`` to provide policy callbacks, replay handling, match handling,
+and tuning. Keep the returned ``GestureObservationToken`` while status or trace observation should
+remain active.
+Use ``GestureRecognizer/observeTrace(_:)`` for live overlay feedback; after a trace becomes visible,
+tail-point and hidden-state updates are delivered during input handling so hosts can render fast
+gestures without an extra main-actor turn.
 
 ## Recognition Pipeline
 
@@ -123,7 +69,11 @@ The recognizer turns platform-neutral input into a match through a small fixed p
 
 PointerGestureKit owns direction recognition, matching, recognizer state, trace observation,
 event-disposition modeling, event-source start retry behavior, and platform-neutral event-source
-contracts.
+contracts. Event-source implementations expose ``GestureEventSource/start(handler:)`` and
+``GestureEventSource/stop()`` as the only live-input lifecycle hooks consumed by the recognizer.
+They apply the returned ``GestureEventDisposition`` to the original platform event:
+``GestureEventDisposition/consume`` suppresses it, while
+``GestureEventDisposition/passThrough`` leaves it in the platform event stream.
 
 PointerGestureKit does not own command catalogs, command execution, overlay UI, Accessibility
 permission presentation, privacy disclosures, persistence, telemetry, analytics, non-macOS
@@ -134,38 +84,123 @@ event-source adapters, or diagonal gesture directions.
 ### Recognizer
 
 - ``GestureRecognizer``
+- ``GestureRecognizer/init(eventSource:configuration:)``
+- ``GestureRecognizer/isRecordingModeEnabled``
+- ``GestureRecognizer/start()``
+- ``GestureRecognizer/stop()``
+- ``GestureRecognizer/retryStartNow()``
+- ``GestureRecognizer/cancelActiveGesture()``
+- ``GestureRecognizer/snapshot``
+- ``GestureRecognizer/observe(_:)``
+- ``GestureRecognizer/observeStatus(_:)``
+- ``GestureRecognizer/observeTrace(_:)``
 - ``GestureRecognizerConfiguration``
+- ``GestureRecognizerConfiguration/init(makeMatcher:onReplayRequested:onMatch:recognitionButton:recognitionContext:isRecognitionEnabled:passesThroughEmptyMatcher:areModifiersSatisfied:tuning:)``
 - ``GestureRecognitionContext``
+- ``GestureRecognitionContext/init(identifier:)``
+- ``GestureRecognitionContext/identifier``
 - ``GestureRecognizerFailure``
+- ``GestureRecognizerFailure/eventSourceStartFailed``
+- ``GestureRecognizerFailure/recognitionDisabled``
+- ``GestureRecognizerFailure/modifiersNotSatisfied``
+- ``GestureRecognizerFailure/gestureSessionExpired``
 
 ### Matching
 
-- ``GesturePatternCatalog``
-- ``GesturePatternCatalog/ValidationIssue``
 - ``GesturePatternMatcher``
+- ``GesturePatternMatcher/init()``
+- ``GesturePatternMatcher/register(pattern:match:)``
+- ``GesturePatternMatcher/match(pattern:)``
 - ``GestureDirection``
+- ``GestureDirection/up``
+- ``GestureDirection/down``
+- ``GestureDirection/left``
+- ``GestureDirection/right``
 
 ### Input and Geometry
 
 - ``GestureInputEvent``
+- ``GestureInputEvent/init(kind:location:modifiers:)``
+- ``GestureInputEvent/Kind``
+- ``GestureInputEvent/Kind/buttonDown(_:)``
+- ``GestureInputEvent/Kind/buttonMoved(_:)``
+- ``GestureInputEvent/Kind/buttonUp(_:)``
+- ``GestureInputEvent/Kind/cancel``
+- ``GestureInputEvent/kind``
+- ``GestureInputEvent/location``
+- ``GestureInputEvent/modifiers``
 - ``GestureEventDisposition``
+- ``GestureEventDisposition/consume``
+- ``GestureEventDisposition/passThrough``
+- ``GestureEventDisposition/consumesOriginalEvent``
 - ``GestureReplayRequest``
+- ``GestureReplayRequest/click(button:at:)``
+- ``GestureReplayRequest/drag(button:points:)``
+- ``GestureReplayRequest/dragStart(button:points:)``
+- ``GestureReplayRequest/release(button:at:)``
 - ``PointerButton``
+- ``PointerButton/primary``
+- ``PointerButton/secondary``
+- ``PointerButton/middle``
+- ``PointerButton/init(auxiliaryButtonID:)``
+- ``PointerButton/auxiliaryButtonID``
 - ``GesturePoint``
+- ``GesturePoint/init(x:y:)``
+- ``GesturePoint/x``
+- ``GesturePoint/y``
+- ``GesturePoint/zero``
 - ``GestureModifierFlags``
+- ``GestureModifierFlags/init(rawValue:)``
+- ``GestureModifierFlags/rawValue``
+- ``GestureModifierFlags/command``
+- ``GestureModifierFlags/option``
+- ``GestureModifierFlags/control``
+- ``GestureModifierFlags/shift``
 
 ### Policy and Tuning
 
 - ``GestureRecognizerTuning``
+- ``GestureRecognizerTuning/standard``
+- ``GestureRecognizerTuning/validated(minimumGestureStartAxisDistance:minimumDirectionChangeAxisDistance:maximumGestureSessionDuration:maximumRawPointCount:eventSourceStartRetryDelays:)``
+- ``GestureRecognizerTuning/ValidationError``
+- ``GestureRecognizerTuning/minimumGestureStartAxisDistance``
+- ``GestureRecognizerTuning/minimumDirectionChangeAxisDistance``
+- ``GestureRecognizerTuning/maximumGestureSessionDuration``
+- ``GestureRecognizerTuning/maximumRawPointCount``
+- ``GestureRecognizerTuning/eventSourceStartRetryDelays``
+- ``GestureRecognizer/updateTuning(_:)``
 
 ### Observation
 
 - ``GestureRecognizerState``
+- ``GestureRecognizerState/init(status:trace:)``
+- ``GestureRecognizerState/status``
+- ``GestureRecognizerState/trace``
 - ``GestureRecognizerState/Status``
+- ``GestureRecognizerState/Status/init(lifecycle:isCapturingGesture:isRecordingModeEnabled:lastRecordedDirections:lastFailure:)``
+- ``GestureRecognizerState/Status/lifecycle``
+- ``GestureRecognizerState/Status/isCapturingGesture``
+- ``GestureRecognizerState/Status/isRecordingModeEnabled``
+- ``GestureRecognizerState/Status/lastRecordedDirections``
+- ``GestureRecognizerState/Status/lastFailure``
 - ``GestureRecognizerState/Status/Lifecycle``
+- ``GestureRecognizerState/Status/Lifecycle/idle``
+- ``GestureRecognizerState/Status/Lifecycle/starting``
+- ``GestureRecognizerState/Status/Lifecycle/ready``
+- ``GestureRecognizerState/Status/Lifecycle/retrying``
+- ``GestureRecognizerState/Status/Lifecycle/failed``
 - ``GestureRecognizerState/Trace``
+- ``GestureRecognizerState/Trace/init(isVisible:rawPoints:directions:directionEndpoints:tailPoint:)``
+- ``GestureRecognizerState/Trace/isVisible``
+- ``GestureRecognizerState/Trace/rawPoints``
+- ``GestureRecognizerState/Trace/directions``
+- ``GestureRecognizerState/Trace/directionEndpoints``
+- ``GestureRecognizerState/Trace/tailPoint``
 - ``GestureObservationToken``
+- ``GestureObservationToken/cancel()``
 
 ### Event Source
 
 - ``GestureEventSource``
+- ``GestureEventSource/start(handler:)``
+- ``GestureEventSource/stop()``

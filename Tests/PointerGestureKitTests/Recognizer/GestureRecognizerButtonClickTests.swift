@@ -4,7 +4,7 @@ import PointerGestureKit
 
 @MainActor
 final class GestureRecognizerButtonClickTests: XCTestCase {
-  func testMovedPendingButtonInputRequestsSequenceReplayWithoutStartingGesture() {
+  func testMovedPendingButtonInputBelowStartDistanceRequestsClickReplayForContextMenu() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
 
@@ -25,31 +25,73 @@ final class GestureRecognizerButtonClickTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       ),
       .consume
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
-        makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 28, y: 10))
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 19, y: 10))
       ),
       .consume
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
-        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 28, y: 10))
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 19, y: 10))
       ),
       .consume
     )
 
-    XCTAssertEqual(
+    assertReplayRequests(
       replayRequests,
-      [.drag(button: .secondary, points: [.init(x: 10, y: 10), .init(x: 28, y: 10)])]
+      [.click(button: .secondary, at: .init(x: 10, y: 10))]
     )
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+  }
+
+  func testMovementAtMinimumStartDistanceStartsRecognizedGesture() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: UUID())
+          return matcher
+        },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 10,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero)
+      ),
+      .consume
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 10, y: 0))
+      ),
+      .consume
+    )
+
+    XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertTrue(recognizer.snapshot.trace.isVisible)
+    XCTAssertEqual(recognizer.snapshot.trace.directions, [.right])
+    XCTAssertEqual(recognizer.snapshot.trace.directionEndpoints, [.zero, .init(x: 10, y: 0)])
   }
 
   func testPlainButtonClickRequestsClickReplayAtStartPoint() {
@@ -73,7 +115,7 @@ final class GestureRecognizerButtonClickTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       ),
@@ -81,13 +123,13 @@ final class GestureRecognizerButtonClickTests: XCTestCase {
     )
     XCTAssertTrue(replayRequests.isEmpty)
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 10, y: 10))
       ),
       .consume
     )
-    XCTAssertEqual(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
+    assertReplayRequests(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     XCTAssertFalse(recognizer.snapshot.trace.isVisible)
   }
@@ -113,20 +155,20 @@ final class GestureRecognizerButtonClickTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       ),
       .consume
     )
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 12, y: 11))
       ),
       .consume
     )
-    XCTAssertEqual(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
+    assertReplayRequests(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     XCTAssertFalse(recognizer.snapshot.trace.isVisible)
   }
@@ -155,24 +197,25 @@ final class GestureRecognizerButtonClickTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero)
       ),
       .consume
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
-        makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 20, y: 0))
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 20, y: 0))
       ),
       .consume
     )
 
     XCTAssertTrue(recognizer.snapshot.trace.isVisible)
     XCTAssertEqual(recognizer.snapshot.trace.rawPoints, [.init(x: 20, y: 0)])
+    XCTAssertEqual(recognizer.snapshot.trace.directionEndpoints, [.zero, .init(x: 20, y: 0)])
   }
 
-  func testRepeatedButtonDownKeepsPendingButtonInputPoint() {
+  func testRepeatedButtonDownReplaysPendingInputAndStartsNewInput() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
     var recognitionContextRequestCount = 0
@@ -194,27 +237,87 @@ final class GestureRecognizerButtonClickTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       ),
       .consume
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 20, y: 20))
       ),
       .consume
     )
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 20, y: 20))
       ),
       .consume
     )
 
-    XCTAssertEqual(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
-    XCTAssertEqual(recognitionContextRequestCount, 1)
+    assertReplayRequests(
+      replayRequests,
+      [
+        .click(button: .secondary, at: .init(x: 10, y: 10)),
+        .click(button: .secondary, at: .init(x: 20, y: 20)),
+      ]
+    )
+    XCTAssertEqual(recognitionContextRequestCount, 2)
+  }
+
+  func testRepeatedButtonDownReleasesActiveSessionAndStartsNewInput() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    var replayRequests: [GestureReplayRequest] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        onReplayRequested: { replayRequests.append($0) },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 0,
+          minimumDirectionChangeAxisDistance: 100
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+    recognizer.isRecordingModeEnabled = true
+    recognizer.start()
+
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
+    )
+    XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
+
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 80, y: 80))
+      ),
+      .consume
+    )
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 80, y: 80))
+      ),
+      .consume
+    )
+
+    assertReplayRequests(
+      replayRequests,
+      [
+        .release(button: .secondary, at: .init(x: 40, y: 10)),
+        .click(button: .secondary, at: .init(x: 80, y: 80)),
+      ]
+    )
   }
 }

@@ -1,9 +1,9 @@
 import Foundation
 
-private let nanosecondsPerSecond: TimeInterval = 1_000_000_000
-
 enum GestureRecognizerTiming {
-  static func sleepNanoseconds(for interval: TimeInterval) -> UInt64 {
+  private static let nanosecondsPerSecond: TimeInterval = 1_000_000_000
+
+  static func taskSleepNanoseconds(for interval: TimeInterval) -> UInt64 {
     guard interval > 0, interval.isFinite else { return 0 }
 
     let nanoseconds = interval * nanosecondsPerSecond

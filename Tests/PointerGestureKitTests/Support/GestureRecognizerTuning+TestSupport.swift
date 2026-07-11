@@ -9,7 +9,7 @@ extension GestureRecognizerTuning {
     maximumRawPointCount: Int = 1000,
     eventSourceStartRetryDelays: [TimeInterval] = []
   ) -> Self {
-    Self(
+    try! Self.validated(
       minimumGestureStartAxisDistance: minimumGestureStartAxisDistance,
       minimumDirectionChangeAxisDistance: minimumDirectionChangeAxisDistance,
       maximumGestureSessionDuration: maximumGestureSessionDuration,

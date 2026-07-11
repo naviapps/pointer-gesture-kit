@@ -4,33 +4,33 @@ public struct PointerButton: Hashable, Sendable {
     case primary
     case secondary
     case middle
-    case additional(UInt32)
+    case auxiliary(UInt32)
   }
 
-  /// The primary pointer button, commonly the left mouse button.
+  /// The primary pointer button.
   public static let primary = Self(storage: .primary)
-  /// The secondary pointer button, commonly the right mouse button.
+  /// The secondary pointer button.
   public static let secondary = Self(storage: .secondary)
   /// The middle pointer button.
   public static let middle = Self(storage: .middle)
 
   private let storage: Storage
 
-  /// The button number for an additional pointer button.
+  /// The platform-neutral identifier for an auxiliary pointer button.
   ///
   /// Primary, secondary, and middle buttons return `nil` because they are modeled explicitly.
-  public var additionalButtonNumber: UInt32? {
-    guard case let .additional(buttonNumber) = storage else { return nil }
-    return buttonNumber
+  public var auxiliaryButtonID: UInt32? {
+    guard case let .auxiliary(buttonID) = storage else { return nil }
+    return buttonID
   }
 
-  /// Creates an additional pointer button.
+  /// Creates an auxiliary pointer button.
   ///
-  /// Returns `nil` for button numbers already modeled by ``primary``, ``secondary``, and
+  /// Returns `nil` for identifiers already modeled by ``primary``, ``secondary``, and
   /// ``middle``.
-  public init?(additionalButtonNumber: UInt32) {
-    guard additionalButtonNumber > 2 else { return nil }
-    storage = .additional(additionalButtonNumber)
+  public init?(auxiliaryButtonID: UInt32) {
+    guard auxiliaryButtonID > 2 else { return nil }
+    storage = .auxiliary(auxiliaryButtonID)
   }
 
   private init(storage: Storage) {

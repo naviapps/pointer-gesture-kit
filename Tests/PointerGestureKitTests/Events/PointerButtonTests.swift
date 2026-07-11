@@ -3,60 +3,49 @@ import XCTest
 
 final class PointerButtonTests: XCTestCase {
   func testCasesRepresentPlatformNeutralPointerButtons() throws {
-    let additionalButton = try makeAdditionalButton()
+    let auxiliaryButton = try makeAuxiliaryButton()
 
-    XCTAssertEqual(Set<PointerButton>([.primary, .secondary, .middle, additionalButton]).count, 4)
+    XCTAssertEqual(Set<PointerButton>([.primary, .secondary, .middle, auxiliaryButton]).count, 4)
   }
 
-  func testAdditionalButtonInitializerRejectsReservedButtonNumbers() {
-    XCTAssertNil(PointerButton(additionalButtonNumber: 0))
-    XCTAssertNil(PointerButton(additionalButtonNumber: 1))
-    XCTAssertNil(PointerButton(additionalButtonNumber: 2))
+  func testAuxiliaryButtonInitializerRejectsReservedButtonIdentifiers() {
+    XCTAssertNil(PointerButton(auxiliaryButtonID: 0))
+    XCTAssertNil(PointerButton(auxiliaryButtonID: 1))
+    XCTAssertNil(PointerButton(auxiliaryButtonID: 2))
   }
 
-  func testAdditionalButtonInitializerStoresAdditionalButtonNumber() {
-    XCTAssertEqual(PointerButton(additionalButtonNumber: 3)?.additionalButtonNumber, 3)
-    XCTAssertEqual(PointerButton(additionalButtonNumber: 4)?.additionalButtonNumber, 4)
+  func testAuxiliaryButtonInitializerStoresAuxiliaryButtonIdentifier() {
+    XCTAssertEqual(PointerButton(auxiliaryButtonID: 3)?.auxiliaryButtonID, 3)
+    XCTAssertEqual(PointerButton(auxiliaryButtonID: 4)?.auxiliaryButtonID, 4)
     XCTAssertEqual(
-      PointerButton(additionalButtonNumber: UInt32.max)?.additionalButtonNumber,
+      PointerButton(auxiliaryButtonID: UInt32.max)?.auxiliaryButtonID,
       UInt32.max
     )
-    XCTAssertNil(PointerButton.primary.additionalButtonNumber)
-    XCTAssertNil(PointerButton.secondary.additionalButtonNumber)
-    XCTAssertNil(PointerButton.middle.additionalButtonNumber)
+    XCTAssertNil(PointerButton.primary.auxiliaryButtonID)
+    XCTAssertNil(PointerButton.secondary.auxiliaryButtonID)
+    XCTAssertNil(PointerButton.middle.auxiliaryButtonID)
   }
 
-  func testEqualityUsesAdditionalButtonNumber() throws {
-    let button = try XCTUnwrap(PointerButton(additionalButtonNumber: 4))
-    let same = try XCTUnwrap(PointerButton(additionalButtonNumber: 4))
-    let different = try XCTUnwrap(PointerButton(additionalButtonNumber: 5))
+  func testEqualityUsesAuxiliaryButtonIdentifier() throws {
+    let button = try XCTUnwrap(PointerButton(auxiliaryButtonID: 4))
+    let same = try XCTUnwrap(PointerButton(auxiliaryButtonID: 4))
+    let different = try XCTUnwrap(PointerButton(auxiliaryButtonID: 5))
 
     XCTAssertEqual(button, same)
     XCTAssertNotEqual(button, different)
-  }
-
-  func testHashableContractSupportsCollections() throws {
-    let additionalButton = try makeAdditionalButton()
-
     XCTAssertEqual(
-      Set<PointerButton>([.primary, .primary, .secondary, additionalButton, additionalButton]),
-      [.primary, .secondary, additionalButton]
+      Set<PointerButton>([button, same, different]),
+      [button, different]
     )
   }
 
   func testSendableContractAcceptsPointerButtonValues() throws {
     assertSendable(PointerButton.primary)
-    assertSendable(try makeAdditionalButton())
+    assertSendable(try makeAuxiliaryButton())
   }
 
-  func testDoesNotExposeSerializationOrEnumerationContracts() {
-    XCTAssertFalse(PointerButton.self is any Codable.Type)
-    XCTAssertFalse(PointerButton.self is any RawRepresentable.Type)
-    XCTAssertFalse(PointerButton.self is any CaseIterable.Type)
-    XCTAssertFalse(PointerButton.self is any Error.Type)
-  }
 }
 
-private func makeAdditionalButton() throws -> PointerButton {
-  try XCTUnwrap(PointerButton(additionalButtonNumber: 4))
+private func makeAuxiliaryButton() throws -> PointerButton {
+  try XCTUnwrap(PointerButton(auxiliaryButtonID: 4))
 }

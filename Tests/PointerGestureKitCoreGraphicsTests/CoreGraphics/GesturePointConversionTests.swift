@@ -24,23 +24,11 @@ final class GesturePointConversionTests: XCTestCase {
   }
 
   func testCGPointInitializerUsesGesturePointCoordinateNormalization() {
-    XCTAssertEqual(
-      GesturePoint(CGPoint(x: CGFloat.nan, y: 18.5)),
-      GesturePoint(x: 0, y: 18.5)
-    )
-    XCTAssertEqual(
-      GesturePoint(CGPoint(x: -7.25, y: CGFloat.infinity)),
-      GesturePoint(x: -7.25, y: 0)
-    )
+    XCTAssertFalse(GesturePoint(CGPoint(x: CGFloat.nan, y: 18.5)).isFinite)
+    XCTAssertFalse(GesturePoint(CGPoint(x: -7.25, y: CGFloat.infinity)).isFinite)
   }
 
-  func testCGPointPropertyUsesNormalizedGesturePointCoordinates() {
-    let point = GesturePoint(x: Double.nan, y: Double.infinity)
-
-    XCTAssertEqual(point.cgPoint, CGPoint.zero)
-  }
-
-  func testRoundTripPreservesFiniteCoordinates() {
+  func testFiniteCoordinatesRoundTripThroughCGPoint() {
     let point = GesturePoint(x: -3.25, y: 9.75)
 
     XCTAssertEqual(GesturePoint(point.cgPoint), point)

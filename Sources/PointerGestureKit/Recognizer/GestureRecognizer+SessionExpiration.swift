@@ -1,32 +1,58 @@
 import Foundation
 
 extension GestureRecognizer {
-  func scheduleSessionExpirationIfNeeded(for sessionID: UUID) {
+  func schedulePendingButtonInputExpirationIfNeeded(forInputID inputID: UUID) {
     guard let maximumGestureSessionDuration = tuning.maximumGestureSessionDuration else { return }
 
-    sessionExpirationTask?.cancel()
-    sessionExpirationTask = Task { [weak self] in
+    inputExpirationTask?.cancel()
+    inputExpirationTask = Task { @MainActor [weak self] in
       do {
         try await Task.sleep(
-          nanoseconds: GestureRecognizerTiming.sleepNanoseconds(
+          nanoseconds: GestureRecognizerTiming.taskSleepNanoseconds(
             for: maximumGestureSessionDuration))
       } catch {
         return
       }
 
-      await MainActor.run {
-        self?.expireSessionIfCurrent(sessionID)
+      self?.expirePendingButtonInputIfCurrentInputID(inputID)
+    }
+  }
+
+  func scheduleSessionExpirationIfNeeded(forSessionID sessionID: UUID) {
+    guard let maximumGestureSessionDuration = tuning.maximumGestureSessionDuration else { return }
+
+    inputExpirationTask?.cancel()
+    inputExpirationTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(
+          nanoseconds: GestureRecognizerTiming.taskSleepNanoseconds(
+            for: maximumGestureSessionDuration))
+      } catch {
+        return
       }
+
+      self?.expireSessionIfCurrentSessionID(sessionID)
     }
   }
 
   @MainActor
-  private func expireSessionIfCurrent(_ sessionID: UUID) {
+  private func expirePendingButtonInputIfCurrentInputID(_ inputID: UUID) {
+    guard let pendingButtonInput, pendingButtonInput.inputID == inputID else { return }
+
+    inputExpirationTask = nil
+    lastFailure = .gestureSessionExpired
+    requestInterruptedButtonInputReplayIfNeeded()
+    self.pendingButtonInput = nil
+    clearPublishedState(discardPendingVisibleTraceNotifications: true)
+  }
+
+  @MainActor
+  private func expireSessionIfCurrentSessionID(_ sessionID: UUID) {
     guard let activeSession = session, activeSession.sessionID == sessionID else { return }
 
-    sessionExpirationTask = nil
+    inputExpirationTask = nil
     lastFailure = .gestureSessionExpired
-    requestConsumedButtonInputReplayIfNeeded()
-    resetGestureSession()
+    requestInterruptedButtonInputReplayIfNeeded()
+    resetGestureSession(discardPendingVisibleTraceNotifications: true)
   }
 }

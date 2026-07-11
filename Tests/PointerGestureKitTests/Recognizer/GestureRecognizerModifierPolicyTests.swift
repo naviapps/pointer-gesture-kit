@@ -34,7 +34,7 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
     let down = makeGestureInputEvent(
       kind: .buttonDown(.secondary), location: .init(x: 10, y: 10), modifiers: [.command])
     let result = eventSource.send(down)
-    XCTAssertEqual(result, .consume)
+    assertDisposition(result, .consume)
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     XCTAssertNil(recognizer.snapshot.status.lastFailure)
   }
@@ -64,12 +64,12 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
     let down = makeGestureInputEvent(
       kind: .buttonDown(.secondary), location: .init(x: 10, y: 10), modifiers: [])
     let result = eventSource.send(down)
-    XCTAssertEqual(result, .passThrough)
+    assertDisposition(result, .passThrough)
     XCTAssertEqual(recognizer.snapshot.status.lastFailure, .modifiersNotSatisfied)
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
   }
 
-  func testRepeatedButtonDownDuringActiveSessionDoesNotRecheckModifiers() {
+  func testRepeatedButtonDownDuringActiveSessionRechecksModifiersForNewInput() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var modifierPolicyCallCount = 0
     var releaseRequests: [GesturePoint] = []
@@ -104,7 +104,7 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(
           kind: .buttonDown(.secondary),
@@ -113,10 +113,10 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
         )),
       .consume
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(
-          kind: .buttonDragged(.secondary),
+          kind: .buttonMoved(.secondary),
           location: .init(x: 100, y: 10),
           modifiers: [.command]
         )),
@@ -124,26 +124,26 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
     )
     XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 120, y: 10))
       ),
-      .consume
+      .passThrough
     )
-    XCTAssertEqual(modifierPolicyCallCount, 1)
-    XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
-    XCTAssertNil(recognizer.snapshot.status.lastFailure)
+    XCTAssertEqual(modifierPolicyCallCount, 2)
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertEqual(recognizer.snapshot.status.lastFailure, .modifiersNotSatisfied)
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(
           kind: .buttonUp(.secondary),
           location: .init(x: 140, y: 10),
           modifiers: [.command]
         )),
-      .consume
+      .passThrough
     )
-    XCTAssertEqual(releaseRequests, [.init(x: 140, y: 10)])
+    XCTAssertEqual(releaseRequests, [.init(x: 100, y: 10)])
   }
 
   func testRecordingModeGestureStartClearsStaleModifierFailure() {
@@ -163,7 +163,7 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
 
     recognizer.start()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       ),
@@ -172,7 +172,7 @@ final class GestureRecognizerModifierPolicyTests: XCTestCase {
     XCTAssertEqual(recognizer.snapshot.status.lastFailure, .modifiersNotSatisfied)
 
     recognizer.isRecordingModeEnabled = true
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 20, y: 20))
       ),

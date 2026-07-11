@@ -2,7 +2,6 @@ import enum CoreGraphics.CGEventType
 import enum CoreGraphics.CGMouseButton
 import PointerGestureKit
 import XCTest
-
 @testable import PointerGestureKitCoreGraphics
 
 final class PointerButtonConversionTests: XCTestCase {
@@ -12,76 +11,60 @@ final class PointerButtonConversionTests: XCTestCase {
     XCTAssertEqual(PointerButton(cgButtonNumber: 2), .middle)
     XCTAssertEqual(
       PointerButton(cgButtonNumber: 3),
-      PointerButton(additionalButtonNumber: 3)
+      PointerButton(auxiliaryButtonID: 3)
     )
-    XCTAssertEqual(
-      PointerButton(cgButtonNumber: Int64(UInt32.max)),
-      PointerButton(additionalButtonNumber: UInt32.max)
-    )
-  }
 
-  func testPointerButtonRejectsInvalidCoreGraphicsButtonNumbers() {
     XCTAssertNil(PointerButton(cgButtonNumber: -1))
     XCTAssertNil(PointerButton(cgButtonNumber: Int64(UInt32.max) + 1))
   }
 
-  func testCoreGraphicsMouseButtonMapsPointerButtons() throws {
-    let additionalButton = try XCTUnwrap(PointerButton(additionalButtonNumber: 3))
+  func testPointerButtonMapsCoreGraphicsMouseButtonsForReplay() throws {
+    let auxiliaryButton = try XCTUnwrap(PointerButton(auxiliaryButtonID: 4))
 
     XCTAssertEqual(PointerButton.primary.cgMouseButton, .left)
     XCTAssertEqual(PointerButton.secondary.cgMouseButton, .right)
     XCTAssertEqual(PointerButton.middle.cgMouseButton, .center)
-    XCTAssertEqual(additionalButton.cgMouseButton, CGMouseButton(rawValue: 3))
+    XCTAssertEqual(auxiliaryButton.cgMouseButton, CGMouseButton(rawValue: 4))
   }
 
-  func testPointerButtonClassifiesCoreGraphicsEventFamilies() throws {
-    let additionalButton = try XCTUnwrap(PointerButton(additionalButtonNumber: 4))
-
-    XCTAssertFalse(PointerButton.primary.usesOtherMouseEventTypes)
-    XCTAssertFalse(PointerButton.secondary.usesOtherMouseEventTypes)
-    XCTAssertTrue(PointerButton.middle.usesOtherMouseEventTypes)
-    XCTAssertTrue(additionalButton.usesOtherMouseEventTypes)
-  }
-
-  func testPointerButtonsExposeCoreGraphicsEventFamilies() {
-    XCTAssertEqual(
+  func testPointerButtonMapsCoreGraphicsEventFamiliesForCaptureAndReplay() throws {
+    assertEventTypes(
       PointerButton.primary.cgEventTypes,
-      PointerButtonCGEventTypes(
-        down: .leftMouseDown,
-        dragged: .leftMouseDragged,
-        up: .leftMouseUp
-      )
+      down: .leftMouseDown,
+      moved: .leftMouseDragged,
+      up: .leftMouseUp
     )
-
-    XCTAssertEqual(
+    assertEventTypes(
       PointerButton.secondary.cgEventTypes,
-      PointerButtonCGEventTypes(
-        down: .rightMouseDown,
-        dragged: .rightMouseDragged,
-        up: .rightMouseUp
-      )
+      down: .rightMouseDown,
+      moved: .rightMouseDragged,
+      up: .rightMouseUp
     )
-
-    XCTAssertEqual(
+    assertEventTypes(
       PointerButton.middle.cgEventTypes,
-      PointerButtonCGEventTypes(
-        down: .otherMouseDown,
-        dragged: .otherMouseDragged,
-        up: .otherMouseUp
-      )
+      down: .otherMouseDown,
+      moved: .otherMouseDragged,
+      up: .otherMouseUp
+    )
+    let auxiliaryButton = try XCTUnwrap(PointerButton(auxiliaryButtonID: 4))
+    assertEventTypes(
+      auxiliaryButton.cgEventTypes,
+      down: .otherMouseDown,
+      moved: .otherMouseDragged,
+      up: .otherMouseUp
     )
   }
+}
 
-  func testAdditionalPointerButtonMapsOtherMouseEventTypes() throws {
-    let button = try XCTUnwrap(PointerButton(additionalButtonNumber: 4))
-
-    XCTAssertEqual(
-      button.cgEventTypes,
-      PointerButtonCGEventTypes(
-        down: .otherMouseDown,
-        dragged: .otherMouseDragged,
-        up: .otherMouseUp
-      )
-    )
-  }
+private func assertEventTypes(
+  _ eventTypes: PointerButtonCGEventTypes,
+  down: CGEventType,
+  moved: CGEventType,
+  up: CGEventType,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  XCTAssertEqual(eventTypes.down, down, file: file, line: line)
+  XCTAssertEqual(eventTypes.moved, moved, file: file, line: line)
+  XCTAssertEqual(eventTypes.up, up, file: file, line: line)
 }

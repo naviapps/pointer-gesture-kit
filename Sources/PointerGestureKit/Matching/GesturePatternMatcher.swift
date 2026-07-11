@@ -4,16 +4,22 @@
 /// ``GestureRecognizer``. Use ``match(pattern:)`` to verify configured patterns in host-app tests.
 public struct GesturePatternMatcher<Match: Sendable>: Sendable {
   private var children: [GestureDirection: GesturePatternMatcher<Match>] = [:]
-  private(set) var currentMatch: Match?
+  private var terminalMatch: Match?
 
   /// Creates an empty matcher.
   public init() {}
 
+  var isEmpty: Bool {
+    children.isEmpty && terminalMatch == nil
+  }
+
   /// Registers a direction pattern with an app-owned match value.
   ///
-  /// Registering the same pattern again replaces the previous match.
+  /// Registering the same pattern again replaces the previous match. Patterns that share prefixes
+  /// with other registered patterns remain distinct.
   ///
-  /// Returns `false` and leaves the matcher unchanged when the pattern is empty.
+  /// Returns `false` without changing the matcher when the pattern is empty. Otherwise returns
+  /// `true`; registering the same pattern again intentionally replaces its match.
   @discardableResult
   public mutating func register(pattern: [GestureDirection], match: Match) -> Bool {
     guard !pattern.isEmpty else { return false }
@@ -35,7 +41,7 @@ public struct GesturePatternMatcher<Match: Sendable>: Sendable {
     var child = children[first] ?? GesturePatternMatcher<Match>()
     let remaining = pattern.dropFirst()
     if remaining.isEmpty {
-      child.currentMatch = match
+      child.terminalMatch = match
     } else {
       child.insert(pattern: remaining, match: match)
     }
@@ -46,12 +52,16 @@ public struct GesturePatternMatcher<Match: Sendable>: Sendable {
     children[direction]
   }
 
+  func completedMatch() -> Match? {
+    terminalMatch
+  }
+
   private func match(pattern: ArraySlice<GestureDirection>) -> Match? {
     guard let first = pattern.first, let child = children[first] else { return nil }
 
     let remaining = pattern.dropFirst()
     if remaining.isEmpty {
-      return child.currentMatch
+      return child.terminalMatch
     }
     return child.match(pattern: remaining)
   }

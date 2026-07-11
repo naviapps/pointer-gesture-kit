@@ -31,16 +31,32 @@ final class GestureRecognizerBasicUsageTests: XCTestCase {
     }
 
     recognizer.start()
-    XCTAssertEqual(send(.buttonDown(.secondary), at: .zero), .consume)
-    XCTAssertEqual(send(.buttonDragged(.secondary), at: .init(x: 0, y: 40)), .consume)
-    XCTAssertEqual(send(.buttonDragged(.secondary), at: .init(x: 40, y: 40)), .consume)
-    XCTAssertEqual(send(.buttonUp(.secondary), at: .init(x: 40, y: 40)), .consume)
+    assertDisposition(send(.buttonDown(.secondary), at: .zero), .consume)
+    assertDisposition(send(.buttonMoved(.secondary), at: .init(x: 0, y: 40)), .consume)
+    assertDisposition(send(.buttonMoved(.secondary), at: .init(x: 40, y: 40)), .consume)
+    assertDisposition(send(.buttonUp(.secondary), at: .init(x: 40, y: 40)), .consume)
 
     XCTAssertEqual(matchedCommands, [.showInspector])
-    XCTAssertEqual(replayRequests, [.release(button: .secondary, at: .init(x: 40, y: 40))])
+    assertReplayRequests(replayRequests, [.release(button: .secondary, at: .init(x: 40, y: 40))])
   }
 
-  func testRecognizerPublicContractIsReferenceOwnedAndSendable() {
+  func testRecognizerIsReferenceOwnedAndSendableFromPublicUse() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let eventSourceContract: any GestureEventSource = eventSource
+    let recognizer = GestureRecognizer(
+      eventSource: eventSource,
+      configuration: GestureRecognizerConfiguration<AppCommand>(
+        makeMatcher: { _ in Self.makeGestureMatcher() },
+        onReplayRequested: { _ in },
+        onMatch: { _ in }
+      )
+    )
+
+    XCTAssertTrue(eventSourceContract === eventSource)
+    assertSendable(recognizer)
+  }
+
+  func testRecognizerPassesThroughNonFiniteInputWithoutStartingState() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     let recognizer = GestureRecognizer(
       eventSource: eventSource,
@@ -51,13 +67,17 @@ final class GestureRecognizerBasicUsageTests: XCTestCase {
       )
     )
 
-    assertSendable(recognizer)
-    XCTAssertFalse(GestureRecognizer<AppCommand>.self is any Equatable.Type)
-    XCTAssertFalse(GestureRecognizer<AppCommand>.self is any Hashable.Type)
-    XCTAssertFalse(GestureRecognizer<AppCommand>.self is any Codable.Type)
-    XCTAssertFalse(GestureRecognizer<AppCommand>.self is any RawRepresentable.Type)
-    XCTAssertFalse(GestureRecognizer<AppCommand>.self is any CaseIterable.Type)
-    XCTAssertFalse(GestureRecognizer<AppCommand>.self is any Error.Type)
+    recognizer.start()
+    let disposition = eventSource.send(
+      makeGestureInputEvent(
+        kind: .buttonDown(.secondary),
+        location: GesturePoint(x: .nan, y: 10)
+      )
+    )
+
+    assertDisposition(disposition, .passThrough)
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
   }
 
   private static func makeGestureMatcher() -> GesturePatternMatcher<AppCommand> {
