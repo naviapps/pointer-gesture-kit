@@ -12,11 +12,12 @@ No changes yet.
 
 ### Changed
 
-- Raised the package requirement to Swift 6.2 for actor-isolated resource cleanup.
+- Raised the package requirement to Swift 6.2 and kept lifetime cleanup compatible with Swift 6.2
+  runtimes.
 - Moved recognizer deinitialization cleanup into a non-generic lifetime owner so optimized Release
   builds preserve replay and event-source shutdown behavior without triggering a compiler crash.
-- Kept Core Graphics event-tap teardown compatible with Swift 6.2 runtimes that abort when the
-  public tap type uses an actor-isolated deinitializer.
+- Avoided actor-isolated deinitializers that abort under Swift 6.2.4 while preserving synchronous
+  main-thread cleanup and safe main-actor handoff from other threads.
 - Updated installation guidance to use the 0.2.0 release line.
 - Removed the redundant `GesturePatternCatalog` and `GesturePatternValidator` wrappers. Pattern
   registration reports an empty pattern directly; duplicate registration intentionally replaces
