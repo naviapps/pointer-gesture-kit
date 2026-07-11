@@ -1,11 +1,11 @@
 /// A platform-neutral pointer or semantic cancel event used by the recognizer.
-public struct GestureInputEvent: Hashable, Sendable {
+public struct GestureInputEvent: Equatable, Sendable {
   /// The normalized event kind.
-  public enum Kind: Hashable, Sendable {
+  public enum Kind: Equatable, Sendable {
     /// A pointer button was pressed.
     case buttonDown(PointerButton)
     /// A pointer button moved while pressed.
-    case buttonDragged(PointerButton)
+    case buttonMoved(PointerButton)
     /// A pointer button was released.
     case buttonUp(PointerButton)
     /// A semantic cancel event occurred.

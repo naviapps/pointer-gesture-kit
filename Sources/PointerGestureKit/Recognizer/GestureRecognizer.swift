@@ -24,7 +24,11 @@ public final class GestureRecognizer<Match: Sendable> {
     }
   }
 
-  /// Whether the recognizer records directions without requiring modifier approval or a match.
+  /// Whether the recognizer records directions without requiring modifier approval or a matcher.
+  ///
+  /// Recording mode still respects the configured recognition-enabled policy for the active
+  /// context. Changes apply to gesture sessions that start after the value changes; an active
+  /// session keeps the mode it started with.
   public var isRecordingModeEnabled: Bool = false {
     didSet {
       scheduleSnapshotNotificationIfChanged(from: oldValue, to: isRecordingModeEnabled)
@@ -69,36 +73,49 @@ public final class GestureRecognizer<Match: Sendable> {
     }
   }
 
+  var traceTailPoint: GesturePoint? {
+    didSet {
+      scheduleSnapshotNotificationIfChanged(from: oldValue, to: traceTailPoint)
+    }
+  }
+
   // MARK: - Observation State
 
-  var snapshotObservers: [UUID: @MainActor @Sendable (GestureRecognizerState) -> Void] = [:]
-  var snapshotNotificationTask: Task<Void, Never>?
+  let observationCenter = GestureRecognizerObservationCenter()
+  var suppressSnapshotNotifications = false
 
   // MARK: - Runtime Configuration
 
   let eventSource: any GestureEventSource
-  let tuning: GestureRecognizerTuning
+  let configuration: GestureRecognizerConfiguration<Match>
+  var tuning: GestureRecognizerTuning {
+    didSet {
+      refreshDeinitializationReplayRequest()
+    }
+  }
 
   // MARK: - Runtime State
 
-  var session: GestureSession?
-  var startupRetryTask: Task<Void, Never>?
+  let cleanup: GestureRecognizerCleanup
+  var session: GestureSession? {
+    didSet {
+      refreshDeinitializationReplayRequest()
+    }
+  }
+  var startupRetryTask: Task<Void, Never>? {
+    get { cleanup.startupRetryTask }
+    set { cleanup.startupRetryTask = newValue }
+  }
   var startRequested = false
-  var sessionExpirationTask: Task<Void, Never>?
-  var pendingButtonInput: PendingButtonInput?
-
-  // MARK: - Recognition Configuration
-
-  let makeMatcher: @MainActor @Sendable (GestureRecognitionContext?) -> GesturePatternMatcher<Match>
-  let recognitionButton: PointerButton
-  let onReplayRequested: @MainActor @Sendable (GestureReplayRequest) -> Void
-  let onMatch: @MainActor @Sendable (Match) -> Void
-  let recognitionContext: @MainActor @Sendable (GesturePoint) -> GestureRecognitionContext?
-  let isRecognitionEnabled: @MainActor @Sendable (GestureRecognitionContext?) -> Bool
-  let areModifiersSatisfied:
-    @MainActor @Sendable (
-      GestureModifierFlags, GestureRecognitionContext?
-    ) -> Bool
+  var inputExpirationTask: Task<Void, Never>? {
+    get { cleanup.inputExpirationTask }
+    set { cleanup.inputExpirationTask = newValue }
+  }
+  var pendingButtonInput: PendingButtonInput? {
+    didSet {
+      refreshDeinitializationReplayRequest()
+    }
+  }
 
   // MARK: - Initialization
 
@@ -108,93 +125,67 @@ public final class GestureRecognizer<Match: Sendable> {
     configuration: GestureRecognizerConfiguration<Match>
   ) {
     self.eventSource = eventSource
+    self.configuration = configuration
     tuning = configuration.tuning
-    makeMatcher = configuration.makeMatcher
-    recognitionButton = configuration.recognitionButton
-    onReplayRequested = configuration.onReplayRequested
-    onMatch = configuration.onMatch
-    recognitionContext = configuration.recognitionContext
-    isRecognitionEnabled = configuration.isRecognitionEnabled
-    areModifiersSatisfied = configuration.areModifiersSatisfied
-  }
-
-  deinit {
-    let cleanup = GestureRecognizerDeinitCleanup(
+    cleanup = GestureRecognizerCleanup(
       eventSource: eventSource,
-      startupRetryTask: startupRetryTask,
-      sessionExpirationTask: sessionExpirationTask,
-      snapshotNotificationTask: snapshotNotificationTask,
-      replayRequest: Self.deinitReplayRequest(
-        session: session,
-        pendingButtonInput: pendingButtonInput,
-        recognitionButton: recognitionButton
-      ),
-      onReplayRequested: onReplayRequested
+      onReplayRequested: configuration.onReplayRequested
     )
-
-    if Thread.isMainThread {
-      MainActor.assumeIsolated {
-        cleanup.run()
-      }
-    } else {
-      Task { @MainActor in
-        cleanup.run()
-      }
-    }
   }
 
-  private nonisolated static func deinitReplayRequest(
-    session: GestureSession?,
-    pendingButtonInput: PendingButtonInput?,
-    recognitionButton: PointerButton
-  ) -> GestureReplayRequest? {
+  private func refreshDeinitializationReplayRequest() {
+    cleanup.replayRequest = Self.interruptedButtonInputReplayRequest(
+      session: session,
+      pendingButtonInput: pendingButtonInput,
+      recognitionButton: configuration.recognitionButton,
+      minimumGestureStartAxisDistance: tuning.minimumGestureStartAxisDistance
+    )
+  }
+
+  nonisolated static func consumedButtonReplayRequest(
+    button: PointerButton,
+    points: [GesturePoint],
+    clickAt point: GesturePoint
+  ) -> GestureReplayRequest {
+    points.count > 1
+      ? .drag(button: button, points: points)
+      : .click(button: button, at: point)
+  }
+
+  /// Updates recognition thresholds, runtime limits, and startup retry tuning.
+  ///
+  /// Existing gesture-input expiration and startup retry work is rescheduled only when the value
+  /// changes. The return value lets host apps avoid canceling active input for duplicate updates.
+  @discardableResult
+  public func updateTuning(_ tuning: GestureRecognizerTuning) -> Bool {
+    guard self.tuning != tuning else { return false }
+
+    self.tuning = tuning
+    rescheduleInputExpirationAfterTuningUpdate()
+    rescheduleStartupRetryAfterTuningUpdate()
+    return true
+  }
+
+  private func rescheduleInputExpirationAfterTuningUpdate() {
+    inputExpirationTask?.cancel()
+    inputExpirationTask = nil
+
     if let session {
-      if session.recognition.isCapturingGesture {
-        return .release(
-          button: recognitionButton,
-          at: deinitReleasePoint(for: session)
-        )
-      }
-
-      guard let replayPoint = session.consumedButtonInput.fallbackReplayPoint else { return nil }
-      return .consumedButtonInput(
-        button: recognitionButton,
-        points: session.consumedButtonInput.points,
-        clickAt: replayPoint
-      )
+      scheduleSessionExpirationIfNeeded(forSessionID: session.sessionID)
+      return
     }
 
-    guard let pendingButtonInput else { return nil }
-    return .consumedButtonInput(
-      button: recognitionButton,
-      points: pendingButtonInput.consumedButtonPoints,
-      clickAt: pendingButtonInput.startPoint
-    )
-  }
-
-  private nonisolated static func deinitReleasePoint(for session: GestureSession) -> GesturePoint {
-    session.consumedButtonInput.fallbackReplayPoint
-      ?? session.trace.rawPoints.last
-      ?? session.startPoint
-  }
-}
-
-private struct GestureRecognizerDeinitCleanup: @unchecked Sendable {
-  let eventSource: any GestureEventSource
-  let startupRetryTask: Task<Void, Never>?
-  let sessionExpirationTask: Task<Void, Never>?
-  let snapshotNotificationTask: Task<Void, Never>?
-  let replayRequest: GestureReplayRequest?
-  let onReplayRequested: @MainActor @Sendable (GestureReplayRequest) -> Void
-
-  @MainActor
-  func run() {
-    startupRetryTask?.cancel()
-    if let replayRequest {
-      onReplayRequested(replayRequest)
+    if let pendingButtonInput {
+      schedulePendingButtonInputExpirationIfNeeded(forInputID: pendingButtonInput.inputID)
+      return
     }
-    sessionExpirationTask?.cancel()
-    snapshotNotificationTask?.cancel()
-    eventSource.stop()
+  }
+
+  private func rescheduleStartupRetryAfterTuningUpdate() {
+    guard startRequested, !isReady else { return }
+
+    cancelStartupRetry()
+    lifecycleState = tuning.eventSourceStartRetryDelays.isEmpty ? .failed : .retrying
+    scheduleStartupRetry()
   }
 }

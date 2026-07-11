@@ -42,7 +42,7 @@ public final class GestureEventTap: GestureEventSource {
   /// Starts the macOS event tap.
   ///
   /// A successful start replaces any previously active event tap and handler.
-  /// Returns `false` when no pointer buttons are configured, or when CoreGraphics cannot create or
+  /// Returns `false` when no pointer buttons are configured, or when Core Graphics cannot create or
   /// install the event tap, for example when the process is missing the required Accessibility
   /// permission.
   public func start(
@@ -123,9 +123,23 @@ public final class GestureEventTap: GestureEventSource {
     type: CGEventType,
     event: CGEvent
   ) -> Unmanaged<CGEvent>? {
-    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+    if let mappedTapDisabledInput = mappedTapDisabledInputEvent(for: type, event: event) {
+      if Thread.isMainThread {
+        MainActor.assumeIsolated {
+          recoverFromTapDisabled(
+            input: mappedTapDisabledInput.input,
+            sourceSignature: mappedTapDisabledInput.sourceSignature
+          )
+        }
+        return Unmanaged.passUnretained(event)
+      }
+
       Task { @MainActor [weak self] in
-        self?.reenableTapPort()
+        guard let self else { return }
+        recoverFromTapDisabled(
+          input: mappedTapDisabledInput.input,
+          sourceSignature: mappedTapDisabledInput.sourceSignature
+        )
       }
       return Unmanaged.passUnretained(event)
     }
@@ -139,7 +153,10 @@ public final class GestureEventTap: GestureEventSource {
     let disposition = MainActor.assumeIsolated {
       dispatchInputEvent(mappedInputEvent.input, sourceSignature: mappedInputEvent.sourceSignature)
     }
-    return disposition == .consume ? nil : Unmanaged.passUnretained(event)
+    if disposition.consumesOriginalEvent {
+      return nil
+    }
+    return Unmanaged.passUnretained(event)
   }
 
   private func dispatchInputEvent(
@@ -153,6 +170,15 @@ public final class GestureEventTap: GestureEventSource {
     guard let gestureHandler = eventHandler else { return .passThrough }
 
     return gestureHandler(input)
+  }
+
+  func recoverFromTapDisabled(
+    input: GestureInputEvent,
+    sourceSignature: SyntheticEventSignature
+  ) {
+    syntheticEventSuppression.removeAll()
+    _ = dispatchInputEvent(input, sourceSignature: sourceSignature)
+    reenableTapPort()
   }
 }
 

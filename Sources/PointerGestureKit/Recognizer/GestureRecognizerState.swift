@@ -1,17 +1,21 @@
 /// Combined observable state for a gesture recognizer.
-public struct GestureRecognizerState: Hashable, Sendable {
+public struct GestureRecognizerState: Equatable, Sendable {
   /// Observable recognizer status.
-  public struct Status: Hashable, Sendable {
+  public struct Status: Equatable, Sendable {
     /// Event-source lifecycle exposed by ``GestureRecognizer`` state.
-    public enum Lifecycle: Hashable, Sendable {
+    public enum Lifecycle: Equatable, Sendable {
       /// The recognizer is stopped.
       case idle
+
       /// The recognizer is starting its event source.
       case starting
+
       /// The recognizer is ready to receive gesture input.
       case ready
+
       /// The recognizer is waiting to retry event-source startup.
       case retrying
+
       /// The recognizer failed to start and has no scheduled retry.
       case failed
     }
@@ -22,15 +26,13 @@ public struct GestureRecognizerState: Hashable, Sendable {
     public let isCapturingGesture: Bool
     /// Whether recording mode is enabled.
     public let isRecordingModeEnabled: Bool
-    /// Directions recorded by the last completed gesture session.
+    /// Directions recorded by the last completed gesture session, including recording-mode
+    /// captures.
     public let lastRecordedDirections: [GestureDirection]
-    /// Last recognition failure.
+    /// Last startup, enablement-policy, modifier-policy, or input-expiration failure.
     public let lastFailure: GestureRecognizerFailure?
 
     /// Creates observable recognizer status.
-    ///
-    /// Omitted values describe an idle recognizer with no active gesture session,
-    /// recording mode disabled, no recorded directions, and no failure.
     public init(
       lifecycle: Lifecycle = .idle,
       isCapturingGesture: Bool = false,
@@ -47,33 +49,31 @@ public struct GestureRecognizerState: Hashable, Sendable {
   }
 
   /// Observable trace state for a gesture recognizer.
-  public struct Trace: Hashable, Sendable {
-    /// Whether the trace is visible.
+  public struct Trace: Equatable, Sendable {
+    /// Whether the trace is visible after recording feedback or a valid matcher prefix.
     public let isVisible: Bool
-    /// Raw gesture points currently shown by the trace.
+    /// Published raw gesture point history.
     public let rawPoints: [GesturePoint]
     /// Gesture directions currently shown by the trace.
     public let directions: [GestureDirection]
     /// Normalized segment endpoints containing the trace start point plus one endpoint per direction.
     public let directionEndpoints: [GesturePoint]
+    /// Latest pointer point for low-latency live trace rendering.
+    public let tailPoint: GesturePoint?
 
     /// Creates observable trace state.
-    ///
-    /// Omitted values describe a hidden trace with no points or directions.
     public init(
       isVisible: Bool = false,
       rawPoints: [GesturePoint] = [],
       directions: [GestureDirection] = [],
-      directionEndpoints: [GesturePoint] = []
+      directionEndpoints: [GesturePoint] = [],
+      tailPoint: GesturePoint? = nil
     ) {
       self.isVisible = isVisible
       self.rawPoints = rawPoints
       self.directions = directions
-      self.directionEndpoints = GestureTraceEndpointNormalizer.normalizedEndpoints(
-        endpoints: directionEndpoints,
-        recognizedDirectionCount: directions.count,
-        publishedRawPoints: rawPoints
-      )
+      self.directionEndpoints = directionEndpoints
+      self.tailPoint = tailPoint
     }
   }
 
@@ -83,8 +83,6 @@ public struct GestureRecognizerState: Hashable, Sendable {
   public let trace: Trace
 
   /// Creates combined observable recognizer state.
-  ///
-  /// Omitted values describe an idle recognizer with an empty trace.
   public init(status: Status = .init(), trace: Trace = .init()) {
     self.status = status
     self.trace = trace

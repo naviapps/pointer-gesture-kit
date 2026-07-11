@@ -1,5 +1,5 @@
 /// A cardinal direction in a pointer gesture pattern or trace.
-public enum GestureDirection: Hashable, CaseIterable, Sendable {
+public enum GestureDirection: Hashable, Sendable {
   /// Movement toward a decreasing y coordinate.
   case up
   /// Movement toward an increasing y coordinate.

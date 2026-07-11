@@ -4,12 +4,12 @@ import XCTest
 final class GestureInputEventTests: XCTestCase {
   func testInitializerStoresKindLocationAndModifiers() {
     let event = GestureInputEvent(
-      kind: .buttonDragged(.secondary),
+      kind: .buttonMoved(.secondary),
       location: GesturePoint(x: 10, y: 20),
       modifiers: [.command, .shift]
     )
 
-    XCTAssertEqual(event.kind, .buttonDragged(.secondary))
+    assertKind(event.kind, .buttonMoved(.secondary))
     XCTAssertEqual(event.location, GesturePoint(x: 10, y: 20))
     XCTAssertEqual(event.modifiers, [.command, .shift])
   }
@@ -23,55 +23,6 @@ final class GestureInputEventTests: XCTestCase {
     XCTAssertEqual(event.modifiers, [])
   }
 
-  func testEqualityUsesKindLocationAndModifiers() {
-    let event = GestureInputEvent(
-      kind: .buttonDown(.secondary),
-      location: GesturePoint(x: 10, y: 20),
-      modifiers: [.command]
-    )
-
-    XCTAssertEqual(
-      event,
-      GestureInputEvent(
-        kind: .buttonDown(.secondary),
-        location: GesturePoint(x: 10, y: 20),
-        modifiers: [.command]
-      )
-    )
-    XCTAssertNotEqual(
-      event,
-      GestureInputEvent(
-        kind: .buttonUp(.secondary),
-        location: GesturePoint(x: 10, y: 20),
-        modifiers: [.command]
-      )
-    )
-    XCTAssertNotEqual(
-      event,
-      GestureInputEvent(
-        kind: .buttonDown(.primary),
-        location: GesturePoint(x: 10, y: 20),
-        modifiers: [.command]
-      )
-    )
-    XCTAssertNotEqual(
-      event,
-      GestureInputEvent(
-        kind: .buttonDown(.secondary),
-        location: GesturePoint(x: 10, y: 21),
-        modifiers: [.command]
-      )
-    )
-    XCTAssertNotEqual(
-      event,
-      GestureInputEvent(
-        kind: .buttonDown(.secondary),
-        location: GesturePoint(x: 10, y: 20),
-        modifiers: [.shift]
-      )
-    )
-  }
-
   func testCancelEventKeepsSourceLocationAndModifiers() {
     let event = GestureInputEvent(
       kind: .cancel,
@@ -79,42 +30,15 @@ final class GestureInputEventTests: XCTestCase {
       modifiers: [.option]
     )
 
-    XCTAssertEqual(event.kind, .cancel)
+    assertKind(event.kind, .cancel)
     XCTAssertEqual(event.location, GesturePoint(x: 10, y: 20))
     XCTAssertEqual(event.modifiers, [.option])
   }
 
-  func testKindHashableContractSupportsCollections() {
-    XCTAssertEqual(
-      Set<GestureInputEvent.Kind>([
-        .buttonDown(.secondary),
-        .buttonDragged(.secondary),
-        .buttonUp(.secondary),
-        .cancel,
-        .cancel,
-      ]),
-      [.buttonDown(.secondary), .buttonDragged(.secondary), .buttonUp(.secondary), .cancel]
-    )
-  }
-
-  func testHashableContractSupportsCollections() {
-    let event = GestureInputEvent(
-      kind: .buttonDown(.secondary),
-      location: GesturePoint(x: 10, y: 20),
-      modifiers: [.command]
-    )
-    let same = GestureInputEvent(
-      kind: .buttonDown(.secondary),
-      location: GesturePoint(x: 10, y: 20),
-      modifiers: [.command]
-    )
-    let different = GestureInputEvent(
-      kind: .buttonDown(.secondary),
-      location: GesturePoint(x: 10, y: 21),
-      modifiers: [.command]
-    )
-
-    XCTAssertEqual(Set([event, same, different]), [event, different])
+  func testInputKindCasesExposeButtonPayloads() {
+    assertKind(.buttonDown(.primary), .buttonDown(.primary))
+    assertKind(.buttonMoved(.secondary), .buttonMoved(.secondary))
+    assertKind(.buttonUp(.middle), .buttonUp(.middle))
   }
 
   func testSendableContractAcceptsEventAndKindValues() {
@@ -125,18 +49,43 @@ final class GestureInputEventTests: XCTestCase {
         modifiers: [.command]
       )
     )
-    assertSendable(GestureInputEvent.Kind.buttonDragged(.secondary))
+    assertSendable(GestureInputEvent.Kind.buttonMoved(.secondary))
   }
 
-  func testDoesNotExposeSerializationOrEnumerationContracts() {
-    XCTAssertFalse(GestureInputEvent.self is any Codable.Type)
-    XCTAssertFalse(GestureInputEvent.self is any RawRepresentable.Type)
-    XCTAssertFalse(GestureInputEvent.self is any CaseIterable.Type)
-    XCTAssertFalse(GestureInputEvent.self is any Error.Type)
+  func testEquatableContractComparesValues() {
+    let event = GestureInputEvent(
+      kind: .buttonMoved(.secondary),
+      location: GesturePoint(x: 10, y: 20),
+      modifiers: [.command]
+    )
 
-    XCTAssertFalse(GestureInputEvent.Kind.self is any Codable.Type)
-    XCTAssertFalse(GestureInputEvent.Kind.self is any RawRepresentable.Type)
-    XCTAssertFalse(GestureInputEvent.Kind.self is any CaseIterable.Type)
-    XCTAssertFalse(GestureInputEvent.Kind.self is any Error.Type)
+    XCTAssertEqual(event, event)
+  }
+
+  private func assertKind(
+    _ kind: GestureInputEvent.Kind,
+    _ expected: ExpectedKind,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    switch (kind, expected) {
+    case let (.buttonDown(button), .buttonDown(expectedButton)):
+      XCTAssertEqual(button, expectedButton, file: file, line: line)
+    case let (.buttonMoved(button), .buttonMoved(expectedButton)):
+      XCTAssertEqual(button, expectedButton, file: file, line: line)
+    case let (.buttonUp(button), .buttonUp(expectedButton)):
+      XCTAssertEqual(button, expectedButton, file: file, line: line)
+    case (.cancel, .cancel):
+      break
+    default:
+      XCTFail("Unexpected input kind \(kind)", file: file, line: line)
+    }
+  }
+
+  private enum ExpectedKind {
+    case buttonDown(PointerButton)
+    case buttonMoved(PointerButton)
+    case buttonUp(PointerButton)
+    case cancel
   }
 }

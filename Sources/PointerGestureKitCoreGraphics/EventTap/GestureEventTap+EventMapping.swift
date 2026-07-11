@@ -1,12 +1,11 @@
 import class CoreGraphics.CGEvent
 import struct CoreGraphics.CGEventFlags
 import enum CoreGraphics.CGEventField
-import typealias CoreGraphics.CGEventMask
 import enum CoreGraphics.CGEventType
 import PointerGestureKit
 
 extension GestureEventTap {
-  nonisolated var eventMask: CGEventMask {
+  nonisolated var eventMask: UInt64 {
     guard !capturedButtons.isEmpty else { return 0 }
 
     var eventTypes = Set<CGEventType>()
@@ -14,14 +13,10 @@ extension GestureEventTap {
     for button in capturedButtons {
       let buttonEventTypes = button.cgEventTypes
       eventTypes.insert(buttonEventTypes.down)
-      eventTypes.insert(buttonEventTypes.dragged)
+      eventTypes.insert(buttonEventTypes.moved)
       eventTypes.insert(buttonEventTypes.up)
     }
     return eventTapMask(for: eventTypes)
-  }
-
-  nonisolated func inputEvent(for type: CGEventType, event: CGEvent) -> GestureInputEvent? {
-    mappedInputEvent(for: type, event: event)?.input
   }
 
   nonisolated func mappedInputEvent(for type: CGEventType, event: CGEvent) -> MappedInputEvent? {
@@ -44,6 +39,14 @@ extension GestureEventTap {
       type: type,
       event: event
     )
+  }
+
+  nonisolated func mappedTapDisabledInputEvent(
+    for type: CGEventType,
+    event: CGEvent
+  ) -> MappedInputEvent? {
+    guard type == .tapDisabledByTimeout || type == .tapDisabledByUserInput else { return nil }
+    return makeMappedInputEvent(kind: .cancel, button: nil, type: type, event: event)
   }
 
   private nonisolated func makeMappedInputEvent(
@@ -79,7 +82,7 @@ private struct PointerButtonInputMapping {
 
 private let escapeVirtualKeyCode: Int64 = 53
 
-private func eventTapMask(for types: some Sequence<CGEventType>) -> CGEventMask {
+private func eventTapMask(for types: some Sequence<CGEventType>) -> UInt64 {
   types.reduce(0) { mask, type in
     mask | (1 << type.rawValue)
   }
@@ -93,13 +96,13 @@ private func pointerButtonInput(
   case .leftMouseDown:
     return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonDown, button: .primary)
   case .leftMouseDragged:
-    return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonDragged, button: .primary)
+    return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonMoved, button: .primary)
   case .leftMouseUp:
     return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonUp, button: .primary)
   case .rightMouseDown:
     return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonDown, button: .secondary)
   case .rightMouseDragged:
-    return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonDragged, button: .secondary)
+    return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonMoved, button: .secondary)
   case .rightMouseUp:
     return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonUp, button: .secondary)
   case .otherMouseDown:
@@ -107,7 +110,7 @@ private func pointerButtonInput(
     return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonDown, button: button)
   case .otherMouseDragged:
     guard let button = otherPointerButton(for: event) else { return nil }
-    return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonDragged, button: button)
+    return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonMoved, button: button)
   case .otherMouseUp:
     guard let button = otherPointerButton(for: event) else { return nil }
     return PointerButtonInputMapping(kind: GestureInputEvent.Kind.buttonUp, button: button)
@@ -117,7 +120,8 @@ private func pointerButtonInput(
 }
 
 private func otherPointerButton(for event: CGEvent) -> PointerButton? {
-  guard let button = pointerButton(for: event), button.usesOtherMouseEventTypes else { return nil }
+  guard let button = pointerButton(for: event) else { return nil }
+  guard button == .middle || button.auxiliaryButtonID != nil else { return nil }
   return button
 }
 

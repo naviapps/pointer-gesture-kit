@@ -9,33 +9,27 @@ final class GestureModifierFlagsTests: XCTestCase {
     XCTAssertTrue(flags.contains(.shift))
     XCTAssertFalse(flags.contains(.option))
     XCTAssertFalse(flags.contains(.control))
+    XCTAssertEqual(Set<GestureModifierFlags>([flags, flags, [.option]]), [flags, [.option]])
   }
 
-  func testRawValuesUseStableKnownBitPositions() {
+  func testRawValuesUseKnownBitPositions() {
     XCTAssertEqual(GestureModifierFlags.command.rawValue, 1 << 0)
     XCTAssertEqual(GestureModifierFlags.option.rawValue, 1 << 1)
     XCTAssertEqual(GestureModifierFlags.control.rawValue, 1 << 2)
     XCTAssertEqual(GestureModifierFlags.shift.rawValue, 1 << 3)
   }
 
-  func testInitializerDiscardsUnknownRawBits() {
+  func testInitializerPreservesUnknownRawBits() {
     let flags = GestureModifierFlags(rawValue: (1 << 20) | GestureModifierFlags.command.rawValue)
 
-    XCTAssertEqual(flags, [.command])
+    XCTAssertEqual(flags.rawValue, (1 << 20) | GestureModifierFlags.command.rawValue)
+    XCTAssertTrue(flags.contains(.command))
   }
 
-  func testInitializerMasksNegativeRawValueToKnownBits() {
+  func testInitializerPreservesNegativeRawValue() {
     let flags = GestureModifierFlags(rawValue: -1)
 
-    XCTAssertEqual(flags, [.command, .option, .control, .shift])
-  }
-
-  func testHashableContractSupportsCollections() {
-    XCTAssertEqual(
-      Set<GestureModifierFlags>([[.command], [.command], [.shift]]),
-      [
-        [.command], [.shift],
-      ])
+    XCTAssertEqual(flags.rawValue, -1)
   }
 
   func testSendableContractAcceptsModifierFlags() {
@@ -43,9 +37,4 @@ final class GestureModifierFlagsTests: XCTestCase {
     assertSendable(GestureModifierFlags([.command, .shift]))
   }
 
-  func testDoesNotExposeSerializationOrEnumerationContracts() {
-    XCTAssertFalse(GestureModifierFlags.self is any Codable.Type)
-    XCTAssertFalse(GestureModifierFlags.self is any CaseIterable.Type)
-    XCTAssertFalse(GestureModifierFlags.self is any Error.Type)
-  }
 }

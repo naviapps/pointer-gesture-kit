@@ -34,18 +34,18 @@ final class GestureRecognizerDeinitTests: XCTestCase {
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       )
       _ = eventSource.send(
-        makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 40, y: 10))
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
       )
 
       XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
     }
 
-    XCTAssertEqual(replayRequests, [.release(button: .secondary, at: .init(x: 40, y: 10))])
+    assertReplayRequests(replayRequests, [.release(button: .secondary, at: .init(x: 40, y: 10))])
     XCTAssertEqual(stopCountWhenReplayWasRequested, 0)
     XCTAssertEqual(eventSource.stopCount, 1)
   }
 
-  func testDeinitReplaysMovedPendingButtonInput() {
+  func testDeinitReplaysMovedPendingButtonInputBelowStartDistanceAsClick() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
     var stopCountWhenReplayWasRequested: Int?
@@ -74,15 +74,15 @@ final class GestureRecognizerDeinitTests: XCTestCase {
         makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
       )
       _ = eventSource.send(
-        makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 20, y: 10))
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 19, y: 10))
       )
 
       XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     }
 
-    XCTAssertEqual(
+    assertReplayRequests(
       replayRequests,
-      [.drag(button: .secondary, points: [.init(x: 10, y: 10), .init(x: 20, y: 10)])]
+      [.click(button: .secondary, at: .init(x: 10, y: 10))]
     )
     XCTAssertEqual(stopCountWhenReplayWasRequested, 0)
     XCTAssertEqual(eventSource.stopCount, 1)
@@ -102,6 +102,7 @@ final class GestureRecognizerDeinitTests: XCTestCase {
     XCTAssertEqual(probe.stopCountWhenReplayWasRequested, 0)
     XCTAssertEqual(probe.eventSource.stopCount, 1)
   }
+
 }
 
 @MainActor
@@ -135,7 +136,7 @@ private final class GestureRecognizerDeinitProbe {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 40, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
     )
 
     XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)

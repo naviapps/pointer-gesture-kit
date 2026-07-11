@@ -53,13 +53,13 @@ final class GestureRecognizerCancellationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 40, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
     )
     XCTAssertTrue(recognizer.snapshot.status.isCapturingGesture)
 
     recognizer.cancelActiveGesture()
 
-    XCTAssertEqual(replayRequests, [.release(button: .secondary, at: .init(x: 40, y: 10))])
+    assertReplayRequests(replayRequests, [.release(button: .secondary, at: .init(x: 40, y: 10))])
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
   }
 
@@ -85,17 +85,17 @@ final class GestureRecognizerCancellationTests: XCTestCase {
 
     recognizer.cancelActiveGesture()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 10, y: 10))
       ),
       .passThrough
     )
-    XCTAssertEqual(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
+    assertReplayRequests(replayRequests, [.click(button: .secondary, at: .init(x: 10, y: 10))])
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
   }
 
-  func testCancelActiveGestureReplaysMovedPendingButtonInput() {
+  func testCancelActiveGestureReplaysMovedPendingButtonInputBelowStartDistanceAsClick() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var replayRequests: [GestureReplayRequest] = []
 
@@ -119,20 +119,20 @@ final class GestureRecognizerCancellationTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 20, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 19, y: 10))
     )
 
     recognizer.cancelActiveGesture()
 
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 20, y: 10))
       ),
       .passThrough
     )
-    XCTAssertEqual(
+    assertReplayRequests(
       replayRequests,
-      [.drag(button: .secondary, points: [.init(x: 10, y: 10), .init(x: 20, y: 10)])]
+      [.click(button: .secondary, at: .init(x: 10, y: 10))]
     )
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
   }
@@ -166,7 +166,7 @@ final class GestureRecognizerCancellationTests: XCTestCase {
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
 
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 40, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
     )
     XCTAssertTrue(recognizer.snapshot.trace.isVisible)
 
@@ -175,6 +175,49 @@ final class GestureRecognizerCancellationTests: XCTestCase {
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
     XCTAssertFalse(recognizer.snapshot.trace.isVisible)
     XCTAssertTrue(recognizer.snapshot.trace.rawPoints.isEmpty)
+  }
+
+  func testCancelActiveGestureHidesImmediatelyAfterVisibleExactMatchTrace() async {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    var traceVisibility: [Bool] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: UUID())
+          return matcher
+        },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 0,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+    let observation = recognizer.observeTrace { trace in
+      traceVisibility.append(trace.isVisible)
+    }
+    defer { observation.cancel() }
+
+    recognizer.start()
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
+    )
+
+    recognizer.cancelActiveGesture()
+    try? await Task.sleep(nanoseconds: 30_000_000)
+
+    XCTAssertEqual(traceVisibility, [false, true, false])
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
   }
 
   func testCancelActiveGesturePreservesLastFailureWhenNoGestureIsActive() {
@@ -223,5 +266,4 @@ final class GestureRecognizerCancellationTests: XCTestCase {
     XCTAssertEqual(recognizer.snapshot.status.lifecycle, .failed)
     XCTAssertEqual(recognizer.snapshot.status.lastFailure, .eventSourceStartFailed)
   }
-
 }

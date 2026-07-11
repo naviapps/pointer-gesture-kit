@@ -4,6 +4,38 @@ import PointerGestureKit
 
 @MainActor
 final class GestureRecognizerMatchingTests: XCTestCase {
+  func testEmptyMatcherPassesThroughRecognitionButtonInput() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: makeGestureRecognizerTestConfiguration(passesThroughEmptyMatcher: true)
+    )
+
+    recognizer.start()
+
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+      ),
+      .passThrough
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 40, y: 10))
+      ),
+      .passThrough
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 40, y: 10))
+      ),
+      .passThrough
+    )
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+    XCTAssertTrue(recognizer.snapshot.trace.directions.isEmpty)
+  }
+
   func testMatchCallsOnMatchAndConsumesButtonUp() {
     let eventSource = GestureEventSourceDouble(startResult: true)
     var releaseRequests: [GesturePoint] = []
@@ -25,7 +57,7 @@ final class GestureRecognizerMatchingTests: XCTestCase {
           switch request {
           case .click:
             clickRequestCount += 1
-          case .drag:
+          case .drag, .dragStart:
             XCTFail("Matched gestures should not replay the consumed sequence.")
           case let .release(_, point):
             releaseRequests.append(point)
@@ -50,16 +82,250 @@ final class GestureRecognizerMatchingTests: XCTestCase {
     _ = eventSource.send(down)
 
     let drag = makeGestureInputEvent(
-      kind: .buttonDragged(.secondary), location: .init(x: 100, y: 10))
-    XCTAssertEqual(eventSource.send(drag), .consume)
+      kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
+    assertDisposition(eventSource.send(drag), .consume)
 
     let up = makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
     let result = eventSource.send(up)
 
-    XCTAssertEqual(result, .consume)
+    assertDisposition(result, .consume)
     XCTAssertEqual(calledIDs, [matchedID])
     XCTAssertEqual(clickRequestCount, 0)
     XCTAssertEqual(releaseRequests, [.init(x: 120, y: 10)])
+  }
+
+  func testMatchedGestureRequestsReplayBeforeMatchCallback() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let matchedID = UUID()
+    var callbacks: [String] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: matchedID)
+          return matcher
+        },
+        onReplayRequested: { _ in callbacks.append("replay") },
+        onMatch: { _ in callbacks.append("match") },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 0,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
+      ),
+      .consume
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
+      ),
+      .consume
+    )
+
+    XCTAssertEqual(callbacks, ["replay", "match"])
+  }
+
+  func testRecognitionSessionKeepsReleaseOnlyReplayWhenRecordingModeIsEnabledMidGesture() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let matchedID = UUID()
+    var calledIDs: [UUID] = []
+    var replayRequests: [GestureReplayRequest] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: matchedID)
+          return matcher
+        },
+        onReplayRequested: { replayRequests.append($0) },
+        onMatch: { calledIDs.append($0) },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 0,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
+    )
+
+    recognizer.isRecordingModeEnabled = true
+
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
+    )
+
+    XCTAssertEqual(calledIDs, [matchedID])
+    assertReplayRequests(replayRequests, [.release(button: .secondary, at: .init(x: 120, y: 10))])
+  }
+
+  func testFirstDirectionUsesGestureStartThreshold() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let matchedID = UUID()
+    var calledIDs: [UUID] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: matchedID)
+          return matcher
+        },
+        onMatch: { calledIDs.append($0) },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 10,
+          minimumDirectionChangeAxisDistance: 25
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 21, y: 10))
+      ),
+      .consume
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 21, y: 10))
+      ),
+      .consume
+    )
+
+    XCTAssertEqual(calledIDs, [matchedID])
+  }
+
+  func testMovementWithoutDominantAxisDoesNotStartGesture() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    var replayRequests: [GestureReplayRequest] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: UUID())
+          return matcher
+        },
+        onReplayRequested: { replayRequests.append($0) },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 10,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 30, y: 30))
+      ),
+      .consume
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 30, y: 30))
+      ),
+      .consume
+    )
+
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertTrue(recognizer.snapshot.trace.directions.isEmpty)
+    assertReplayRequests(
+      replayRequests,
+      [
+        .drag(
+          button: .secondary,
+          points: [
+            .init(x: 10, y: 10),
+            .init(x: 30, y: 30),
+          ]
+        )
+      ]
+    )
+  }
+
+  func testRegisteringSamePatternUsesLatestMatch() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let firstID = UUID()
+    let secondID = UUID()
+    var calledIDs: [UUID] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right], match: firstID)
+          matcher.register(pattern: [.right], match: secondID)
+          return matcher
+        },
+        onMatch: { calledIDs.append($0) },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 0,
+          minimumDirectionChangeAxisDistance: 0
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
+    )
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
+    )
+    _ = eventSource.send(
+      makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
+    )
+
+    XCTAssertEqual(calledIDs, [secondID])
   }
 
   func testMatchCallbackReceivesCompletedSnapshot() {
@@ -95,9 +361,9 @@ final class GestureRecognizerMatchingTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
       ),
@@ -137,13 +403,13 @@ final class GestureRecognizerMatchingTests: XCTestCase {
     _ = eventSource.send(
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
-        makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: 10))
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
       ),
       .consume
     )
-    XCTAssertEqual(
+    assertDisposition(
       eventSource.send(
         makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
       ),
@@ -151,6 +417,63 @@ final class GestureRecognizerMatchingTests: XCTestCase {
     )
 
     XCTAssertTrue(calledIDs.isEmpty)
+  }
+
+  func testDirectionChangeAtMinimumDistanceCompletesRegisteredPattern() {
+    let eventSource = GestureEventSourceDouble(startResult: true)
+    let matchedID = UUID()
+    var calledIDs: [UUID] = []
+
+    let configuration: GestureRecognizerConfiguration<UUID> =
+      makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in
+          var matcher = GesturePatternMatcher<UUID>()
+          matcher.register(pattern: [.right, .down], match: matchedID)
+          return matcher
+        },
+        onMatch: { calledIDs.append($0) },
+        areModifiersSatisfied: { _, _ in true },
+        tuning: .testing(
+          minimumGestureStartAxisDistance: 10,
+          minimumDirectionChangeAxisDistance: 25
+        )
+      )
+
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: eventSource,
+      configuration: configuration
+    )
+
+    recognizer.start()
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero)
+      ),
+      .consume
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 10, y: 0))
+      ),
+      .consume
+    )
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 10, y: 25))
+      ),
+      .consume
+    )
+
+    XCTAssertTrue(recognizer.snapshot.trace.isVisible)
+    XCTAssertEqual(recognizer.snapshot.trace.directions, [.right, .down])
+
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 10, y: 25))
+      ),
+      .consume
+    )
+    XCTAssertEqual(calledIDs, [matchedID])
   }
 
   func testShortSharedPrefixPatternMatchesWhenGestureEndsAtPrefix() {
@@ -185,7 +508,7 @@ final class GestureRecognizerMatchingTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
     )
     _ = eventSource.send(
       makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 120, y: 10))
@@ -226,10 +549,10 @@ final class GestureRecognizerMatchingTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: 100))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 100))
     )
     _ = eventSource.send(
       makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 100, y: 120))
@@ -269,30 +592,40 @@ final class GestureRecognizerMatchingTests: XCTestCase {
       makeGestureInputEvent(kind: .buttonDown(.secondary), location: .init(x: 10, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: 10))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: 10))
     )
     _ = eventSource.send(
-      makeGestureInputEvent(kind: .buttonDragged(.secondary), location: .init(x: 100, y: -80))
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 100, y: -80))
     )
     XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
-    XCTAssertEqual(
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+    XCTAssertEqual(recognizer.snapshot.trace.directions, [])
+    assertDisposition(
       eventSource.send(
-        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 100, y: -100))
+        makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 140, y: -100))
       ),
-      .consume
+      .passThrough
+    )
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertFalse(recognizer.snapshot.trace.isVisible)
+    XCTAssertEqual(recognizer.snapshot.trace.directions, [])
+    assertDisposition(
+      eventSource.send(
+        makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 160, y: -100))
+      ),
+      .passThrough
     )
 
     XCTAssertTrue(calledIDs.isEmpty)
-    XCTAssertEqual(
+    assertReplayRequests(
       replayRequests,
       [
-        .drag(
+        .dragStart(
           button: .secondary,
           points: [
             .init(x: 10, y: 10),
             .init(x: 100, y: 10),
             .init(x: 100, y: -80),
-            .init(x: 100, y: -100),
           ]
         )
       ]
@@ -301,7 +634,7 @@ final class GestureRecognizerMatchingTests: XCTestCase {
 }
 
 @MainActor
-private final class MatchingSnapshotProbe: @unchecked Sendable {
+private final class MatchingSnapshotProbe {
   var recognizer: GestureRecognizer<UUID>?
   var snapshot: GestureRecognizerState?
 

@@ -1,19 +1,21 @@
+import Foundation
+
 extension GestureRecognizer {
   private var isTrackingButtonInput: Bool {
     pendingButtonInput != nil || session != nil
   }
 
   func handleInputEvent(_ event: GestureInputEvent) -> GestureEventDisposition {
-    guard isReady else { return .passThrough }
+    guard isReady, event.location.isFinite else { return .passThrough }
 
     switch event.kind {
     case let .buttonDown(button):
-      guard button == recognitionButton else { return .passThrough }
-      guard !isTrackingButtonInput else {
-        return .consume
+      guard button == configuration.recognitionButton else { return .passThrough }
+      if isTrackingButtonInput {
+        cancelGestureSession()
       }
 
-      let policyResult = validateGestureStartPolicy(
+      let policyResult = evaluateRecognitionPolicy(
         at: event.location,
         modifiers: event.modifiers
       )
@@ -26,12 +28,12 @@ extension GestureRecognizer {
         recognitionContext: recognitionContext
       )
 
-    case let .buttonDragged(button):
-      guard button == recognitionButton else { return .passThrough }
+    case let .buttonMoved(button):
+      guard button == configuration.recognitionButton else { return .passThrough }
       return continueButtonInput(at: event.location)
 
     case let .buttonUp(button):
-      guard button == recognitionButton else { return .passThrough }
+      guard button == configuration.recognitionButton else { return .passThrough }
       return finishButtonInput(at: event.location)
 
     case .cancel:
@@ -49,11 +51,24 @@ extension GestureRecognizer {
     at location: GesturePoint,
     recognitionContext: GestureRecognitionContext?
   ) -> GestureEventDisposition {
+    let isRecordingSession = isRecordingModeEnabled
+    let matcherCursor = isRecordingSession ? nil : configuration.makeMatcher(recognitionContext)
+    guard
+      isRecordingSession || !configuration.passesThroughEmptyMatcher
+        || matcherCursor?.isEmpty == false
+    else {
+      return .passThrough
+    }
+
+    let inputID = UUID()
     pendingButtonInput = PendingButtonInput(
+      inputID: inputID,
       startPoint: location,
       consumedButtonPoints: [location],
-      recognitionContext: recognitionContext
+      matcherCursor: matcherCursor,
+      isRecordingSession: isRecordingSession
     )
+    schedulePendingButtonInputExpirationIfNeeded(forInputID: inputID)
     return .consume
   }
 
@@ -71,12 +86,16 @@ extension GestureRecognizer {
       beginGestureSession(
         at: pendingInput.startPoint,
         consumedPoints: pendingInput.consumedButtonPoints,
-        context: pendingInput.recognitionContext
+        matcherCursor: pendingInput.matcherCursor,
+        isRecordingSession: pendingInput.isRecordingSession
       )
       pendingButtonInput = nil
     }
 
     updateGestureSession(to: location)
+    if releaseStoppedButtonInputIfNeeded() {
+      return .consume
+    }
 
     guard var activeSession = session else { return .passThrough }
     if shouldConsumeButtonInput(for: activeSession) {
@@ -90,7 +109,7 @@ extension GestureRecognizer {
 
   private func finishButtonInput(at location: GesturePoint) -> GestureEventDisposition {
     guard let activeSession = session else {
-      if hasPendingButtonMovement {
+      if let pendingInput = pendingButtonInput, pendingInput.consumedButtonPoints.count > 1 {
         appendPendingButtonInputPoint(location)
       }
       return requestPendingButtonInputReplay()
@@ -102,19 +121,24 @@ extension GestureRecognizer {
     }
 
     let outcome = completeGestureSession(at: location)
+    configuration.onReplayRequested(outcome.replayRequest)
     if let match = outcome.match {
-      onMatch(match)
+      configuration.onMatch(match)
     }
-    onReplayRequested(outcome.replayRequest)
     return .consume
   }
 
   private func requestPendingButtonInputReplay() -> GestureEventDisposition {
     guard let pendingInput = pendingButtonInput else { return .passThrough }
     pendingButtonInput = nil
-    requestConsumedButtonInputReplay(
-      pendingInput.consumedButtonPoints,
-      clickAt: pendingInput.startPoint
+    inputExpirationTask?.cancel()
+    inputExpirationTask = nil
+    configuration.onReplayRequested(
+      Self.pendingButtonInputReplayRequest(
+        pendingInput,
+        button: configuration.recognitionButton,
+        minimumGestureStartAxisDistance: tuning.minimumGestureStartAxisDistance
+      )
     )
     return .consume
   }
@@ -123,34 +147,44 @@ extension GestureRecognizer {
     guard var pendingInput = pendingButtonInput else { return }
     if pendingInput.consumedButtonPoints.last != point {
       pendingInput.consumedButtonPoints.append(point)
+      trimConsumedButtonPoints(&pendingInput.consumedButtonPoints)
     }
     pendingButtonInput = pendingInput
-  }
-
-  private var hasPendingButtonMovement: Bool {
-    guard let pendingInput = pendingButtonInput else { return false }
-    return pendingInput.consumedButtonPoints.count > 1
   }
 
   private func shouldPromotePendingButtonInputToGesture(
     from start: GesturePoint,
     to next: GesturePoint
   ) -> Bool {
-    guard GestureMovementResolver.dominantDirection(from: start, to: next) != nil else {
+    guard GestureMovementResolver.dominantAxisDirection(from: start, to: next) != nil else {
       return false
     }
 
-    let movementThreshold: Double =
-      if isRecordingModeEnabled {
-        tuning.minimumGestureStartAxisDistance
-      } else {
-        max(tuning.minimumGestureStartAxisDistance, tuning.minimumDirectionChangeAxisDistance)
-      }
-    return GestureMovementResolver.maximumAxisDelta(from: start, to: next) > movementThreshold
+    return GestureMovementResolver.maximumAbsoluteAxisDelta(from: start, to: next)
+      >= tuning.minimumGestureStartAxisDistance
   }
 
   private func shouldConsumeButtonInput(for session: GestureSession) -> Bool {
     session.trace.isVisible || !session.trace.directions.isEmpty
       || session.consumedButtonInput.fallbackReplayPoint != nil
+  }
+
+  private func releaseStoppedButtonInputIfNeeded() -> Bool {
+    guard
+      let activeSession = session,
+      !activeSession.recognition.isCapturingGesture,
+      activeSession.consumedButtonInput.fallbackReplayPoint != nil
+    else {
+      return false
+    }
+
+    configuration.onReplayRequested(
+      .dragStart(
+        button: configuration.recognitionButton,
+        points: activeSession.consumedButtonInput.points
+      )
+    )
+    resetGestureSession()
+    return true
   }
 }

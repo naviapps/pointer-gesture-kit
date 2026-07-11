@@ -1,7 +1,5 @@
 import class CoreGraphics.CGEvent
 import struct CoreGraphics.CGPoint
-import typealias CoreGraphics.CGEventMask
-import typealias CoreGraphics.CGKeyCode
 import enum CoreGraphics.CGEventType
 import enum CoreGraphics.CGMouseButton
 import PointerGestureKit
@@ -46,9 +44,9 @@ final class GestureEventTapEventMappingTests: XCTestCase {
     )
     event.flags = [.maskCommand, .maskShift]
 
-    let input = tap.inputEvent(for: .rightMouseDown, event: event)
+    let input = inputEvent(from: tap, for: .rightMouseDown, event: event)
 
-    XCTAssertEqual(input?.kind, .buttonDown(.secondary))
+    assertInputKind(input?.kind, .buttonDown(.secondary))
     XCTAssertEqual(input?.location, GesturePoint(x: 12, y: 34))
     XCTAssertEqual(input?.modifiers, [.command, .shift])
   }
@@ -61,61 +59,29 @@ final class GestureEventTapEventMappingTests: XCTestCase {
       location: CGPoint(x: 12, y: 34)
     )
 
-    let input = tap.inputEvent(for: .leftMouseDown, event: event)
+    let input = inputEvent(from: tap, for: .leftMouseDown, event: event)
 
-    XCTAssertEqual(input?.kind, .buttonDown(.primary))
+    assertInputKind(input?.kind, .buttonDown(.primary))
     XCTAssertEqual(input?.location, GesturePoint(x: 12, y: 34))
-  }
-
-  func testInputEventMapsPrimaryMouseDraggedAndUpWhenCaptured() throws {
-    let tap = GestureEventTap(capturedButtons: [.primary])
-
-    let dragged = tap.inputEvent(
-      for: .leftMouseDragged,
-      event: try mouseEvent(type: .leftMouseDragged, button: .left)
-    )
-    let up = tap.inputEvent(
-      for: .leftMouseUp,
-      event: try mouseEvent(type: .leftMouseUp, button: .left)
-    )
-
-    XCTAssertEqual(dragged?.kind, .buttonDragged(.primary))
-    XCTAssertEqual(up?.kind, .buttonUp(.primary))
   }
 
   func testInputEventMapsMiddleMouseDownWhenCaptured() throws {
     let tap = GestureEventTap(capturedButtons: [.middle])
     let event = try mouseEvent(type: .otherMouseDown, button: .center)
 
-    let input = tap.inputEvent(for: .otherMouseDown, event: event)
+    let input = inputEvent(from: tap, for: .otherMouseDown, event: event)
 
-    XCTAssertEqual(input?.kind, .buttonDown(.middle))
-  }
-
-  func testInputEventMapsMiddleMouseDraggedAndUpWhenCaptured() throws {
-    let tap = GestureEventTap(capturedButtons: [.middle])
-
-    let dragged = tap.inputEvent(
-      for: .otherMouseDragged,
-      event: try mouseEvent(type: .otherMouseDragged, button: .center)
-    )
-    let up = tap.inputEvent(
-      for: .otherMouseUp,
-      event: try mouseEvent(type: .otherMouseUp, button: .center)
-    )
-
-    XCTAssertEqual(dragged?.kind, .buttonDragged(.middle))
-    XCTAssertEqual(up?.kind, .buttonUp(.middle))
+    assertInputKind(input?.kind, .buttonDown(.middle))
   }
 
   func testInputEventMapsOtherMouseDownWhenCaptured() throws {
-    let additionalButton = try makeAdditionalButton()
-    let tap = GestureEventTap(capturedButtons: [additionalButton])
+    let auxiliaryButton = try makeAuxiliaryButton()
+    let tap = GestureEventTap(capturedButtons: [auxiliaryButton])
     let event = try mouseEvent(type: .otherMouseDown, button: makeExtraMouseButton())
 
-    let input = tap.inputEvent(for: .otherMouseDown, event: event)
+    let input = inputEvent(from: tap, for: .otherMouseDown, event: event)
 
-    XCTAssertEqual(input?.kind, .buttonDown(additionalButton))
+    assertInputKind(input?.kind, .buttonDown(auxiliaryButton))
   }
 
   func testMappedInputEventUsesRecognizedOtherMouseButtonForSourceSignature() throws {
@@ -125,28 +91,40 @@ final class GestureEventTapEventMappingTests: XCTestCase {
 
     let mappedInputEvent = tap.mappedInputEvent(for: .otherMouseDown, event: event)
 
-    XCTAssertEqual(mappedInputEvent?.input.kind, .buttonDown(.middle))
+    assertInputKind(mappedInputEvent?.input.kind, .buttonDown(.middle))
     XCTAssertEqual(
       mappedInputEvent?.sourceSignature,
       SyntheticEventSignature.replayed(type: .otherMouseDown, button: .middle)
     )
   }
 
-  func testInputEventMapsOtherMouseDraggedAndUpWhenCaptured() throws {
-    let additionalButton = try makeAdditionalButton()
-    let tap = GestureEventTap(capturedButtons: [additionalButton])
+  func testInputEventMapsConfiguredMoveCGEventsToButtonMovedInput() throws {
+    let auxiliaryButton = try makeAuxiliaryButton()
 
-    let dragged = tap.inputEvent(
-      for: .otherMouseDragged,
-      event: try mouseEvent(type: .otherMouseDragged, button: makeExtraMouseButton())
+    try assertInputEventMapsMovedAndUp(
+      capturedButton: .secondary,
+      movedEventType: .rightMouseDragged,
+      upType: .rightMouseUp,
+      mouseButton: .right
     )
-    let up = tap.inputEvent(
-      for: .otherMouseUp,
-      event: try mouseEvent(type: .otherMouseUp, button: makeExtraMouseButton())
+    try assertInputEventMapsMovedAndUp(
+      capturedButton: .primary,
+      movedEventType: .leftMouseDragged,
+      upType: .leftMouseUp,
+      mouseButton: .left
     )
-
-    XCTAssertEqual(dragged?.kind, .buttonDragged(additionalButton))
-    XCTAssertEqual(up?.kind, .buttonUp(additionalButton))
+    try assertInputEventMapsMovedAndUp(
+      capturedButton: .middle,
+      movedEventType: .otherMouseDragged,
+      upType: .otherMouseUp,
+      mouseButton: .center
+    )
+    try assertInputEventMapsMovedAndUp(
+      capturedButton: auxiliaryButton,
+      movedEventType: .otherMouseDragged,
+      upType: .otherMouseUp,
+      mouseButton: makeExtraMouseButton()
+    )
   }
 
   func testInputEventMapsSupportedModifiers() throws {
@@ -154,7 +132,7 @@ final class GestureEventTapEventMappingTests: XCTestCase {
     let event = try mouseEvent(type: .rightMouseDown, button: .right)
     event.flags = [.maskAlternate, .maskCommand, .maskControl, .maskShift]
 
-    let input = tap.inputEvent(for: .rightMouseDown, event: event)
+    let input = inputEvent(from: tap, for: .rightMouseDown, event: event)
 
     XCTAssertEqual(input?.modifiers, [.command, .option, .control, .shift])
   }
@@ -164,37 +142,9 @@ final class GestureEventTapEventMappingTests: XCTestCase {
     let event = try mouseEvent(type: .rightMouseDown, button: .right)
     event.flags = [.maskCommand, .maskSecondaryFn]
 
-    let input = tap.inputEvent(for: .rightMouseDown, event: event)
+    let input = inputEvent(from: tap, for: .rightMouseDown, event: event)
 
     XCTAssertEqual(input?.modifiers, [.command])
-  }
-
-  func testInputEventMapsSecondaryMouseDragged() throws {
-    let tap = GestureEventTap()
-    let event = try mouseEvent(
-      type: .rightMouseDragged,
-      button: .right,
-      location: CGPoint(x: 18, y: 21)
-    )
-
-    let input = tap.inputEvent(for: .rightMouseDragged, event: event)
-
-    XCTAssertEqual(input?.kind, .buttonDragged(.secondary))
-    XCTAssertEqual(input?.location, GesturePoint(x: 18, y: 21))
-  }
-
-  func testInputEventMapsSecondaryMouseUp() throws {
-    let tap = GestureEventTap()
-    let event = try mouseEvent(
-      type: .rightMouseUp,
-      button: .right,
-      location: CGPoint(x: 30, y: 42)
-    )
-
-    let input = tap.inputEvent(for: .rightMouseUp, event: event)
-
-    XCTAssertEqual(input?.kind, .buttonUp(.secondary))
-    XCTAssertEqual(input?.location, GesturePoint(x: 30, y: 42))
   }
 
   func testInputEventMapsEscapeKeyDownToCancel() throws {
@@ -204,17 +154,37 @@ final class GestureEventTapEventMappingTests: XCTestCase {
     )
     event.flags = [.maskControl]
 
-    let input = tap.inputEvent(for: .keyDown, event: event)
+    let input = inputEvent(from: tap, for: .keyDown, event: event)
 
-    XCTAssertEqual(input?.kind, .cancel)
+    assertInputKind(input?.kind, .cancel)
     XCTAssertEqual(input?.modifiers, [.control])
+  }
+
+  func testTapDisabledEventsMapToCancelInput() throws {
+    let tap = GestureEventTap()
+    let event = try mouseEvent(type: .rightMouseDragged, button: .right)
+    event.flags = [.maskShift]
+
+    let timeoutInput = tap.mappedTapDisabledInputEvent(
+      for: .tapDisabledByTimeout,
+      event: event
+    )?.input
+    let userInput = tap.mappedTapDisabledInputEvent(
+      for: .tapDisabledByUserInput,
+      event: event
+    )?.input
+
+    assertInputKind(timeoutInput?.kind, .cancel)
+    assertInputKind(userInput?.kind, .cancel)
+    XCTAssertEqual(timeoutInput?.modifiers, [.shift])
+    XCTAssertEqual(userInput?.modifiers, [.shift])
   }
 
   func testInputEventIgnoresNonEscapeKeyDown() throws {
     let tap = GestureEventTap()
     let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
 
-    XCTAssertNil(tap.inputEvent(for: .keyDown, event: event))
+    XCTAssertNil(inputEvent(from: tap, for: .keyDown, event: event))
   }
 
   func testInputEventIgnoresEscapeKeyDownWhenCapturedButtonsAreEmpty() throws {
@@ -223,7 +193,7 @@ final class GestureEventTapEventMappingTests: XCTestCase {
       CGEvent(keyboardEventSource: nil, virtualKey: escapeVirtualKeyCode, keyDown: true)
     )
 
-    XCTAssertNil(tap.inputEvent(for: .keyDown, event: event))
+    XCTAssertNil(inputEvent(from: tap, for: .keyDown, event: event))
   }
 
   func testInputEventIgnoresUncapturedMouseEvent() throws {
@@ -236,41 +206,77 @@ final class GestureEventTapEventMappingTests: XCTestCase {
         mouseButton: .left
       ))
 
-    XCTAssertNil(tap.inputEvent(for: .leftMouseDown, event: event))
+    XCTAssertNil(inputEvent(from: tap, for: .leftMouseDown, event: event))
   }
 
   func testInputEventIgnoresUncapturedOtherMouseButton() throws {
     let tap = GestureEventTap(capturedButtons: [.middle])
     let event = try mouseEvent(type: .otherMouseDown, button: makeExtraMouseButton())
 
-    XCTAssertNil(tap.inputEvent(for: .otherMouseDown, event: event))
+    XCTAssertNil(inputEvent(from: tap, for: .otherMouseDown, event: event))
   }
 
   func testInputEventIgnoresOtherMouseEventsForPrimaryOrSecondaryButtonNumbers() throws {
     let tap = GestureEventTap(capturedButtons: [.primary, .secondary, .middle])
 
     XCTAssertNil(
-      tap.inputEvent(
+      inputEvent(
+        from: tap,
         for: .otherMouseDown,
         event: try mouseEvent(type: .otherMouseDown, button: .left))
     )
     XCTAssertNil(
-      tap.inputEvent(
+      inputEvent(
+        from: tap,
         for: .otherMouseDown,
         event: try mouseEvent(type: .otherMouseDown, button: .right))
     )
   }
 }
 
-private let escapeVirtualKeyCode: CGKeyCode = 53
+private let escapeVirtualKeyCode: UInt16 = 53
 private let defaultMouseLocation = CGPoint(x: 12, y: 34)
+
+private func inputEvent(
+  from tap: GestureEventTap,
+  for type: CGEventType,
+  event: CGEvent
+) -> GestureInputEvent? {
+  tap.mappedInputEvent(for: type, event: event)?.input
+}
+
+@MainActor
+private func assertInputEventMapsMovedAndUp(
+  capturedButton: PointerButton,
+  movedEventType: CGEventType,
+  upType: CGEventType,
+  mouseButton: CGMouseButton,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) throws {
+  let tap = GestureEventTap(capturedButtons: [capturedButton])
+
+  let moved = inputEvent(
+    from: tap,
+    for: movedEventType,
+    event: try mouseEvent(type: movedEventType, button: mouseButton)
+  )
+  let up = inputEvent(
+    from: tap,
+    for: upType,
+    event: try mouseEvent(type: upType, button: mouseButton)
+  )
+
+  assertInputKind(moved?.kind, .buttonMoved(capturedButton), file: file, line: line)
+  assertInputKind(up?.kind, .buttonUp(capturedButton), file: file, line: line)
+}
 
 private func makeExtraMouseButton() throws -> CGMouseButton {
   try XCTUnwrap(CGMouseButton(rawValue: 4))
 }
 
-private func makeAdditionalButton() throws -> PointerButton {
-  try XCTUnwrap(PointerButton(additionalButtonNumber: 4))
+private func makeAuxiliaryButton() throws -> PointerButton {
+  try XCTUnwrap(PointerButton(auxiliaryButtonID: 4))
 }
 
 private func mouseEvent(
@@ -287,8 +293,40 @@ private func mouseEvent(
     ))
 }
 
-private func eventTapMask(for types: CGEventType...) -> CGEventMask {
+private func eventTapMask(for types: CGEventType...) -> UInt64 {
   types.reduce(0) { mask, type in
     mask | (1 << type.rawValue)
   }
+}
+
+private func assertInputKind(
+  _ kind: GestureInputEvent.Kind?,
+  _ expected: ExpectedInputKind,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  guard let kind else {
+    XCTFail("Expected input kind \(expected)", file: file, line: line)
+    return
+  }
+
+  switch (kind, expected) {
+  case let (.buttonDown(button), .buttonDown(expectedButton)):
+    XCTAssertEqual(button, expectedButton, file: file, line: line)
+  case let (.buttonMoved(button), .buttonMoved(expectedButton)):
+    XCTAssertEqual(button, expectedButton, file: file, line: line)
+  case let (.buttonUp(button), .buttonUp(expectedButton)):
+    XCTAssertEqual(button, expectedButton, file: file, line: line)
+  case (.cancel, .cancel):
+    break
+  default:
+    XCTFail("Unexpected input kind \(kind)", file: file, line: line)
+  }
+}
+
+private enum ExpectedInputKind {
+  case buttonDown(PointerButton)
+  case buttonMoved(PointerButton)
+  case buttonUp(PointerButton)
+  case cancel
 }

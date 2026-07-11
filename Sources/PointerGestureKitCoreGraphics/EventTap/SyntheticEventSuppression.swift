@@ -9,13 +9,13 @@ extension GestureEventTap {
   }
 
   func consumePendingSyntheticEventSignature(_ signature: SyntheticEventSignature) -> Bool {
-    syntheticEventSuppression.consume(signature)
+    syntheticEventSuppression.consumeThrough(signature)
   }
 }
 
 struct SyntheticEventSignature: Equatable, Sendable {
-  let type: CGEventType
-  let button: PointerButton?
+  private let type: CGEventType
+  private let button: PointerButton?
   private let eventSourceUserData: Int64
 
   private init(type: CGEventType, button: PointerButton?, eventSourceUserData: Int64) {
@@ -50,20 +50,48 @@ struct SyntheticEventSignature: Equatable, Sendable {
       eventSourceUserData: eventSourceUserData
     )
   }
+
+  static var tapDisabledTimeout: Self {
+    Self(type: .tapDisabledByTimeout, button: nil, eventSourceUserData: 0)
+  }
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.type == rhs.type
+      && lhs.button == rhs.button
+      && lhs.eventSourceUserData == rhs.eventSourceUserData
+  }
+
+  var isReplayedEvent: Bool {
+    eventSourceUserData == replayEventSourceUserData
+  }
 }
 
 private let replayEventSourceUserData: Int64 = 0x5047_4B54
 
 struct SyntheticEventSuppression {
+  private let maximumPendingSignatureCount: Int
   private var pendingSignatures: [SyntheticEventSignature] = []
 
-  mutating func suppress(_ signatures: [SyntheticEventSignature]) {
-    pendingSignatures.append(contentsOf: signatures)
+  init(maximumPendingSignatureCount: Int = 512) {
+    self.maximumPendingSignatureCount = max(1, maximumPendingSignatureCount)
   }
 
-  mutating func consume(_ signature: SyntheticEventSignature) -> Bool {
-    guard let signatureIndex = pendingSignatures.firstIndex(of: signature) else {
+  /// Queues replayed event signatures that should be ignored when observed through the tap.
+  mutating func suppress(_ signatures: [SyntheticEventSignature]) {
+    pendingSignatures.append(contentsOf: signatures)
+    trimPendingSignatures()
+  }
+
+  /// Removes the matching replayed event signature and any earlier pending signatures.
+  ///
+  /// The tap may not observe every replayed event. When a later replayed signature arrives, earlier
+  /// pending signatures can no longer be consumed and are discarded.
+  mutating func consumeThrough(_ signature: SyntheticEventSignature) -> Bool {
+    guard signature.isReplayedEvent else {
       return false
+    }
+    guard let signatureIndex = pendingSignatures.firstIndex(of: signature) else {
+      return true
     }
     pendingSignatures.removeFirst(signatureIndex + 1)
     return true
@@ -71,5 +99,11 @@ struct SyntheticEventSuppression {
 
   mutating func removeAll() {
     pendingSignatures.removeAll()
+  }
+
+  private mutating func trimPendingSignatures() {
+    let overflow = pendingSignatures.count - maximumPendingSignatureCount
+    guard overflow > 0 else { return }
+    pendingSignatures.removeFirst(overflow)
   }
 }

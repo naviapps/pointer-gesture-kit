@@ -19,6 +19,7 @@ extension GestureRecognizer {
 
   struct GestureSessionRecognitionState {
     var matcherCursor: GesturePatternMatcher<Match>?
+    var isRecordingSession: Bool
     var isCapturingGesture: Bool
   }
 
@@ -27,6 +28,7 @@ extension GestureRecognizer {
     var publishedRawPointCount: Int
     var directionEndpoints: [GesturePoint]
     var directions: [GestureDirection]
+    var tailPoint: GesturePoint?
     var isVisible: Bool
   }
 
@@ -37,8 +39,10 @@ extension GestureRecognizer {
   }
 
   struct PendingButtonInput {
+    var inputID: UUID
     var startPoint: GesturePoint
     var consumedButtonPoints: [GesturePoint]
-    var recognitionContext: GestureRecognitionContext?
+    var matcherCursor: GesturePatternMatcher<Match>?
+    var isRecordingSession: Bool
   }
 }

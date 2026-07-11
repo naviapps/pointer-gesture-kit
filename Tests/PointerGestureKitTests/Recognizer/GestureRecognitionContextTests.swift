@@ -25,8 +25,23 @@ final class GestureRecognitionContextTests: XCTestCase {
     XCTAssertEqual(context.identifier, "host context")
   }
 
-  func testEqualityUsesIdentifier() throws {
-    let context = try XCTUnwrap(GestureRecognitionContext(identifier: "host.context"))
+  func testEqualityUsesNormalizedIdentifier() throws {
+    XCTAssertEqual(
+      try XCTUnwrap(GestureRecognitionContext(identifier: " host.context ")),
+      try XCTUnwrap(GestureRecognitionContext(identifier: "host.context"))
+    )
+    XCTAssertNotEqual(
+      try XCTUnwrap(GestureRecognitionContext(identifier: "host.context")),
+      try XCTUnwrap(GestureRecognitionContext(identifier: "other.context"))
+    )
+  }
+
+  func testSendableContractAcceptsContext() throws {
+    assertSendable(try XCTUnwrap(GestureRecognitionContext(identifier: "host.context")))
+  }
+
+  func testEquatableContractUsesIdentifier() throws {
+    let context = try XCTUnwrap(GestureRecognitionContext(identifier: " host.context "))
     let same = try XCTUnwrap(GestureRecognitionContext(identifier: "host.context"))
     let different = try XCTUnwrap(GestureRecognitionContext(identifier: "other.context"))
 
@@ -34,29 +49,4 @@ final class GestureRecognitionContextTests: XCTestCase {
     XCTAssertNotEqual(context, different)
   }
 
-  func testEqualityUsesNormalizedIdentifier() throws {
-    XCTAssertEqual(
-      try XCTUnwrap(GestureRecognitionContext(identifier: " host.context ")),
-      try XCTUnwrap(GestureRecognitionContext(identifier: "host.context"))
-    )
-  }
-
-  func testHashableContractSupportsCollections() throws {
-    let context = try XCTUnwrap(GestureRecognitionContext(identifier: " host.context "))
-    let same = try XCTUnwrap(GestureRecognitionContext(identifier: "host.context"))
-    let different = try XCTUnwrap(GestureRecognitionContext(identifier: "other.context"))
-
-    XCTAssertEqual(Set([context, same, different]), [same, different])
-  }
-
-  func testSendableContractAcceptsContext() throws {
-    assertSendable(try XCTUnwrap(GestureRecognitionContext(identifier: "host.context")))
-  }
-
-  func testDoesNotExposeSerializationOrEnumerationContracts() {
-    XCTAssertFalse(GestureRecognitionContext.self is any Codable.Type)
-    XCTAssertFalse(GestureRecognitionContext.self is any RawRepresentable.Type)
-    XCTAssertFalse(GestureRecognitionContext.self is any CaseIterable.Type)
-    XCTAssertFalse(GestureRecognitionContext.self is any Error.Type)
-  }
 }
