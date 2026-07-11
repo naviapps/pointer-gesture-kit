@@ -10,8 +10,8 @@ import PointerGestureKit
 @MainActor
 public final class GestureEventTap: GestureEventSource {
   let capturedButtons: Set<PointerButton>
-  private var tapPort: CFMachPort?
-  private var runLoopSource: CFRunLoopSource?
+  private var tapPort: EventTapPort?
+  private var runLoopSource: EventTapRunLoopSource?
   private var eventHandler: (@MainActor @Sendable (GestureInputEvent) -> GestureEventDisposition)?
   var syntheticEventSuppression = SyntheticEventSuppression()
 
@@ -22,8 +22,21 @@ public final class GestureEventTap: GestureEventSource {
     self.capturedButtons = capturedButtons
   }
 
-  isolated deinit {
-    stop()
+  deinit {
+    let cleanup = GestureEventTapDeinitCleanup(
+      tapPort: tapPort,
+      runLoopSource: runLoopSource
+    )
+
+    if Thread.isMainThread {
+      MainActor.assumeIsolated {
+        cleanup.run()
+      }
+    } else {
+      Task { @MainActor in
+        cleanup.run()
+      }
+    }
   }
 
   /// Starts the macOS event tap.
@@ -52,12 +65,12 @@ public final class GestureEventTap: GestureEventSource {
   /// Calling this while the tap is already stopped is safe.
   public func stop() {
     if let source = runLoopSource {
-      CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+      CFRunLoopRemoveSource(CFRunLoopGetMain(), source.value, .commonModes)
       runLoopSource = nil
     }
     if let port = tapPort {
-      CGEvent.tapEnable(tap: port, enable: false)
-      CFMachPortInvalidate(port)
+      CGEvent.tapEnable(tap: port.value, enable: false)
+      CFMachPortInvalidate(port.value)
       tapPort = nil
     }
     eventHandler = nil
@@ -66,7 +79,7 @@ public final class GestureEventTap: GestureEventSource {
 
   private func reenableTapPort() {
     guard let port = tapPort else { return }
-    CGEvent.tapEnable(tap: port, enable: true)
+    CGEvent.tapEnable(tap: port.value, enable: true)
   }
 
   private func makeTapPort() -> CFMachPort? {
@@ -91,8 +104,8 @@ public final class GestureEventTap: GestureEventSource {
   ) {
     eventHandler = handler
     CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-    tapPort = port
-    runLoopSource = source
+    tapPort = EventTapPort(port)
+    runLoopSource = EventTapRunLoopSource(source)
     CGEvent.tapEnable(tap: port, enable: true)
   }
 
@@ -166,5 +179,37 @@ public final class GestureEventTap: GestureEventSource {
     syntheticEventSuppression.removeAll()
     _ = dispatchInputEvent(input, sourceSignature: sourceSignature)
     reenableTapPort()
+  }
+}
+
+private struct GestureEventTapDeinitCleanup: @unchecked Sendable {
+  let tapPort: EventTapPort?
+  let runLoopSource: EventTapRunLoopSource?
+
+  @MainActor
+  func run() {
+    if let runLoopSource {
+      CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource.value, .commonModes)
+    }
+    if let tapPort {
+      CGEvent.tapEnable(tap: tapPort.value, enable: false)
+      CFMachPortInvalidate(tapPort.value)
+    }
+  }
+}
+
+private struct EventTapPort: @unchecked Sendable {
+  let value: CFMachPort
+
+  init(_ value: CFMachPort) {
+    self.value = value
+  }
+}
+
+private struct EventTapRunLoopSource: @unchecked Sendable {
+  let value: CFRunLoopSource
+
+  init(_ value: CFRunLoopSource) {
+    self.value = value
   }
 }
