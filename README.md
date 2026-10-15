@@ -72,6 +72,11 @@ screen or view coordinate transforms belong in the host app.
 - [PointerGestureKit API reference](https://swiftpackageindex.com/naviapps/pointer-gesture-kit/documentation/pointergesturekit)
 - [PointerGestureKitCoreGraphics API reference](https://swiftpackageindex.com/naviapps/pointer-gesture-kit/documentation/pointergesturekitcoregraphics)
 
+Local API catalogs for this checkout:
+
+- [PointerGestureKit](Sources/PointerGestureKit/PointerGestureKit.docc/PointerGestureKit.md)
+- [PointerGestureKitCoreGraphics](Sources/PointerGestureKitCoreGraphics/PointerGestureKitCoreGraphics.docc/PointerGestureKitCoreGraphics.md)
+
 ## Basic Usage
 
 Define the app-owned command type and the direction patterns that should trigger it:
@@ -228,8 +233,10 @@ app matters, ignore the point argument. Return `nil` when no host context is act
 `GestureRecognitionContext(identifier:)` trims surrounding whitespace and returns `nil` for blank
 identifiers. Use `isRecognitionEnabled` when a valid context exists but should not currently accept
 gestures.
-`GestureModifierFlags(rawValue:)` uses package-owned modifier bits, not platform modifier masks, and
-discards bits that are not command, option, control, or shift.
+`GestureModifierFlags(rawValue:)` preserves the supplied package-owned bits, including unknown
+bits and negative raw values. These are not platform modifier masks. Use named flags for normal
+policy and let the Core Graphics adapter map platform flags; hosts own normalization for stored
+settings.
 
 Set `isRecordingModeEnabled` only while teaching or recording a gesture pattern. Recording mode
 captures directions without requiring modifier approval or a matcher, but it still respects
@@ -331,15 +338,31 @@ PointerGestureKit intentionally does not own:
 
 Those concerns should stay outside this package.
 
-## Development
+## Repository guide
 
-Run the package check with:
+[Package.swift](Package.swift) defines products, target boundaries, platform requirements,
+and dependency resolution.
+
+| Target | Owns | Implementation and tests |
+| --- | --- | --- |
+| `PointerGestureKit` | Neutral recognizer, matching, input policy and observation | [Source](Sources/PointerGestureKit) · [Tests](Tests/PointerGestureKitTests) |
+| `PointerGestureKitCoreGraphics` | Event tap, platform mapping and replay | [Source](Sources/PointerGestureKitCoreGraphics) · [Tests](Tests/PointerGestureKitCoreGraphicsTests) |
+
+## Development
 
 ```sh
 make check
 ```
 
-GitHub Actions runs the same check on pull requests and pushes to `main`.
+The gate runs strict Swift formatting, Debug and Release builds, and the test suite
+with complete concurrency checking and warnings as errors. CI runs the same gate.
+On macOS, XCTest and DocC validation require full Xcode developer tools. If the
+active developer directory is Command Line Tools, set `DEVELOPER_DIR` to the
+installed Xcode developer directory for the check command.
+
+See [AGENTS.md](AGENTS.md) for change guidance and [CONTRIBUTING.md](CONTRIBUTING.md)
+for contribution policy. Release history and private reporting stay in
+[CHANGELOG.md](CHANGELOG.md) and [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

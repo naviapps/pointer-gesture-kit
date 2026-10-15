@@ -55,6 +55,21 @@ Use ``GestureRecognizer/observeTrace(_:)`` for live overlay feedback; after a tr
 tail-point and hidden-state updates are delivered during input handling so hosts can render fast
 gestures without an extra main-actor turn.
 
+## Session and Input Contracts
+
+Matching is exact; registering an empty pattern fails, and registering an existing pattern
+replaces its match. Context, matcher, and recording mode are captured for a gesture session.
+Changes to recording mode affect subsequent sessions. Recording bypasses matcher/modifier
+approval while still respecting the recognition-enable policy.
+
+``GestureModifierFlags/init(rawValue:)`` preserves supplied package bits, including unknown
+bits; it does not accept platform modifier masks as equivalent values. Convert platform flags
+in the event-source adapter and normalize host settings at the host boundary.
+
+Keep observation tokens alive while observation is needed. Status and trace observation emit
+an initial snapshot. Cancellation or token release removes the observer. Stopping recognition
+cancels start retries and active capture; it can still emit replay requests for consumed input.
+
 ## Recognition Pipeline
 
 The recognizer turns platform-neutral input into a match through a small fixed pipeline:
