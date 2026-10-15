@@ -5,11 +5,7 @@ import PointerGestureKit
 
 extension GestureEventTap {
   func suppressNextSyntheticEventSignatures(_ signatures: [SyntheticEventSignature]) {
-    syntheticEventSuppression.suppress(signatures)
-  }
-
-  func consumePendingSyntheticEventSignature(_ signature: SyntheticEventSignature) -> Bool {
-    syntheticEventSuppression.consumeThrough(signature)
+    inputDispatch.syntheticEventSuppression.suppress(signatures)
   }
 }
 

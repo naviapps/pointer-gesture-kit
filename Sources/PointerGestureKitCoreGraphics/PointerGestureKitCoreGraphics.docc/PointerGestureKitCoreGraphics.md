@@ -60,8 +60,9 @@ let point = GesturePoint(CGPoint(x: 10, y: 20))
 PointerGestureKitCoreGraphics owns the live Core Graphics event-tap adapter for pointer-button
 drag input, Escape-key cancellation, modifier mapping, and pointer-button replay adaptation. Use
 ``GestureEventTap/replay(_:)`` to handle click, drag, and release replay
-requests emitted by the recognizer. A click replay posts button-down and button-up events before
-returning. A drag replay posts down, move, and up events; empty drag requests are ignored and
+requests emitted by the recognizer. `GestureReplayRequest.dragStart(button:points:)`
+restores a consumed drag start without posting a release; a later release request finishes it.
+A click replay posts button-down and button-up events before returning. A drag replay posts down, move, and up events; empty drag requests are ignored and
 single-point drag requests replay as a click at that point. Replayed events are marked so the tap can
 ignore them if Core Graphics reports them back through the event stream.
 
@@ -72,8 +73,8 @@ recognizer's event-disposition decision, and replays concrete Core Graphics even
 `GestureReplayRequest` values. It reports event-tap creation failure through
 ``GestureEventTap/start(handler:)``. Host applications are responsible for Accessibility
 permission onboarding and recovery UI.
-The ``PointerGestureKit/GesturePoint/init(_:)`` and ``PointerGestureKit/GesturePoint/cgPoint``
-bridges preserve coordinates and expose the core ``PointerGestureKit/GesturePoint/isFinite`` check
+The `GesturePoint.init(_:)` and `GesturePoint.cgPoint`
+bridges preserve coordinates and expose the core `GesturePoint.isFinite` check
 for non-finite input. They do not flip coordinate axes; platform-specific
 screen or view coordinate transforms belong in the host app.
 
@@ -86,8 +87,3 @@ screen or view coordinate transforms belong in the host app.
 - ``GestureEventTap/start(handler:)``
 - ``GestureEventTap/stop()``
 - ``GestureEventTap/replay(_:)``
-
-### Core Graphics Bridges
-
-- ``PointerGestureKit/GesturePoint/init(_:)``
-- ``PointerGestureKit/GesturePoint/cgPoint``

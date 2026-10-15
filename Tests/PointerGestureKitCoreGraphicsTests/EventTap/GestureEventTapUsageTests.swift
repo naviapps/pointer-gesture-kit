@@ -25,15 +25,15 @@ final class GestureEventTapUsageTests: XCTestCase {
     XCTAssertFalse(didStart)
   }
 
-  func testTapDisabledRecoveryDispatchesCancelImmediatelyOnMainActor() {
-    let eventTap = GestureEventTap()
+  func testDisabledTapInputDispatchDeliversCancelSynchronouslyOnMainActor() {
+    let inputDispatch = GestureEventTapInputDispatch()
     var handledKinds: [GestureInputEvent.Kind] = []
-    _ = eventTap.start { input in
+    inputDispatch.install { input in
       handledKinds.append(input.kind)
       return .consume
     }
 
-    eventTap.recoverFromTapDisabled(
+    inputDispatch.recoverFromTapDisabled(
       input: GestureInputEvent(
         kind: .cancel,
         location: .zero,
@@ -45,22 +45,23 @@ final class GestureEventTapUsageTests: XCTestCase {
     XCTAssertEqual(handledKinds, [.cancel])
   }
 
-  func testTapDisabledRecoveryClearsPendingSyntheticSuppressionBeforeDispatchingCancel() {
-    let eventTap = GestureEventTap()
+  func testDisabledTapInputDispatchClearsSyntheticSuppressionBeforeDispatchingCancel() {
+    let inputDispatch = GestureEventTapInputDispatch()
     var pendingCountsSeenByHandler: [Int] = []
-    _ = eventTap.start { input in
+    inputDispatch.install { [weak inputDispatch] input in
+      guard let inputDispatch else { return .passThrough }
       XCTAssertEqual(input.kind, .cancel)
-      pendingCountsSeenByHandler.append(eventTap.pendingSyntheticEventSignatureCount())
-      eventTap.suppressNextSyntheticEventSignatures([
+      pendingCountsSeenByHandler.append(inputDispatch.pendingSyntheticEventSignatureCount())
+      inputDispatch.syntheticEventSuppression.suppress([
         .replayed(type: .leftMouseUp, button: .primary)
       ])
       return .consume
     }
-    eventTap.suppressNextSyntheticEventSignatures([
+    inputDispatch.syntheticEventSuppression.suppress([
       .replayed(type: .rightMouseUp, button: .secondary)
     ])
 
-    eventTap.recoverFromTapDisabled(
+    inputDispatch.recoverFromTapDisabled(
       input: GestureInputEvent(
         kind: .cancel,
         location: .zero,
@@ -70,7 +71,49 @@ final class GestureEventTapUsageTests: XCTestCase {
     )
 
     XCTAssertEqual(pendingCountsSeenByHandler, [0])
-    XCTAssertEqual(eventTap.pendingSyntheticEventSignatureCount(), 1)
+    XCTAssertEqual(inputDispatch.pendingSyntheticEventSignatureCount(), 1)
+  }
+
+  func testInputDispatchStopDropsHandlerAndPendingSyntheticEvents() {
+    let inputDispatch = GestureEventTapInputDispatch()
+    var handledKinds: [GestureInputEvent.Kind] = []
+    inputDispatch.install { input in
+      handledKinds.append(input.kind)
+      return .consume
+    }
+    inputDispatch.syntheticEventSuppression.suppress([
+      .replayed(type: .rightMouseUp, button: .secondary)
+    ])
+
+    inputDispatch.stop()
+    let disposition = inputDispatch.dispatch(
+      GestureInputEvent(kind: .cancel, location: .zero, modifiers: []),
+      sourceSignature: .tapDisabledTimeout
+    )
+
+    XCTAssertEqual(disposition, .passThrough)
+    XCTAssertTrue(handledKinds.isEmpty)
+    XCTAssertEqual(inputDispatch.pendingSyntheticEventSignatureCount(), 0)
+  }
+
+  func testInputDispatchPassesThroughReplayedInputWithoutInvokingHandler() {
+    let inputDispatch = GestureEventTapInputDispatch()
+    var handledKinds: [GestureInputEvent.Kind] = []
+    inputDispatch.install { input in
+      handledKinds.append(input.kind)
+      return .consume
+    }
+    let signature = SyntheticEventSignature.replayed(type: .rightMouseUp, button: .secondary)
+    inputDispatch.syntheticEventSuppression.suppress([signature])
+
+    let disposition = inputDispatch.dispatch(
+      GestureInputEvent(kind: .buttonUp(.secondary), location: .zero, modifiers: []),
+      sourceSignature: signature
+    )
+
+    XCTAssertEqual(disposition, .passThrough)
+    XCTAssertTrue(handledKinds.isEmpty)
+    XCTAssertEqual(inputDispatch.pendingSyntheticEventSignatureCount(), 0)
   }
 
   func testReadmeStyleDefaultButtonControllerTypeChecks() {
@@ -106,7 +149,7 @@ final class GestureEventTapUsageTests: XCTestCase {
   }
 }
 
-private extension GestureEventTap {
+private extension GestureEventTapInputDispatch {
   func pendingSyntheticEventSignatureCount(
     file: StaticString = #filePath,
     line: UInt = #line

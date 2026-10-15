@@ -12,8 +12,7 @@ public final class GestureEventTap: GestureEventSource {
   let capturedButtons: Set<PointerButton>
   private var tapPort: EventTapPort?
   private var runLoopSource: EventTapRunLoopSource?
-  private var eventHandler: (@MainActor @Sendable (GestureInputEvent) -> GestureEventDisposition)?
-  var syntheticEventSuppression = SyntheticEventSuppression()
+  let inputDispatch = GestureEventTapInputDispatch()
 
   /// Creates an event tap for the provided pointer buttons.
   ///
@@ -73,8 +72,7 @@ public final class GestureEventTap: GestureEventSource {
       CFMachPortInvalidate(port.value)
       tapPort = nil
     }
-    eventHandler = nil
-    syntheticEventSuppression.removeAll()
+    inputDispatch.stop()
   }
 
   private func reenableTapPort() {
@@ -102,7 +100,7 @@ public final class GestureEventTap: GestureEventSource {
     source: CFRunLoopSource,
     handler: @escaping @MainActor @Sendable (GestureInputEvent) -> GestureEventDisposition
   ) {
-    eventHandler = handler
+    inputDispatch.install(handler: handler)
     CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
     tapPort = EventTapPort(port)
     runLoopSource = EventTapRunLoopSource(source)
@@ -151,7 +149,8 @@ public final class GestureEventTap: GestureEventSource {
     }
 
     let disposition = MainActor.assumeIsolated {
-      dispatchInputEvent(mappedInputEvent.input, sourceSignature: mappedInputEvent.sourceSignature)
+      inputDispatch.dispatch(
+        mappedInputEvent.input, sourceSignature: mappedInputEvent.sourceSignature)
     }
     if disposition.consumesOriginalEvent {
       return nil
@@ -159,25 +158,11 @@ public final class GestureEventTap: GestureEventSource {
     return Unmanaged.passUnretained(event)
   }
 
-  private func dispatchInputEvent(
-    _ input: GestureInputEvent,
-    sourceSignature: SyntheticEventSignature
-  ) -> GestureEventDisposition {
-    if consumePendingSyntheticEventSignature(sourceSignature) {
-      return .passThrough
-    }
-
-    guard let gestureHandler = eventHandler else { return .passThrough }
-
-    return gestureHandler(input)
-  }
-
   func recoverFromTapDisabled(
     input: GestureInputEvent,
     sourceSignature: SyntheticEventSignature
   ) {
-    syntheticEventSuppression.removeAll()
-    _ = dispatchInputEvent(input, sourceSignature: sourceSignature)
+    inputDispatch.recoverFromTapDisabled(input: input, sourceSignature: sourceSignature)
     reenableTapPort()
   }
 }
