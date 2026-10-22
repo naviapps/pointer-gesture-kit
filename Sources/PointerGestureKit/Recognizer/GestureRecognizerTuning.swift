@@ -10,6 +10,8 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
     case invalidMinimumDirectionChangeAxisDistance
     /// The non-`nil` session duration was non-positive or non-finite.
     case invalidMaximumGestureSessionDuration
+    /// The non-`nil` inactivity duration was non-positive or non-finite.
+    case invalidMaximumGestureIdleDuration
     /// The raw point count was not positive.
     case invalidMaximumRawPointCount
     /// A retry delay at the zero-based index was negative or non-finite.
@@ -20,8 +22,10 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
   public let minimumGestureStartAxisDistance: Double
   /// Minimum horizontal or vertical movement needed before accepting a new direction.
   public let minimumDirectionChangeAxisDistance: Double
-  /// Maximum duration for pending or active gesture input, or `nil` to disable expiration.
+  /// Maximum duration for pending or active gesture input, or `nil` to disable the total limit.
   public let maximumGestureSessionDuration: TimeInterval?
+  /// Maximum time without a changed pointer location, or `nil` to disable idle expiration.
+  public let maximumGestureIdleDuration: TimeInterval?
   /// Maximum number of raw pointer points retained for an active gesture.
   public let maximumRawPointCount: Int
   /// Delays used in order when retrying event-source startup.
@@ -32,6 +36,7 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
     minimumGestureStartAxisDistance: 10,
     minimumDirectionChangeAxisDistance: 25,
     maximumGestureSessionDuration: 1,
+    maximumGestureIdleDuration: nil,
     maximumRawPointCount: 256,
     eventSourceStartRetryDelays: [0.25, 0.5, 1, 2, 4]
   )
@@ -39,12 +44,15 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
   /// Creates custom tuning after validating every value.
   ///
   /// Distances and retry delays must be finite and nonnegative. A non-`nil` session duration must
-  /// be finite and positive. The raw point count must be positive. Retry order and duplicates are
-  /// preserved, and an explicit zero delay means retry on the next task yield.
+  /// be finite and positive. The same rules apply to the optional inactivity duration. The earliest
+  /// enabled deadline expires input; stationary events do not extend the idle deadline. The raw
+  /// point count must be positive. Retry order and duplicates are preserved, and an explicit zero
+  /// delay means retry on the next task yield.
   public static func validated(
     minimumGestureStartAxisDistance: Double = 10,
     minimumDirectionChangeAxisDistance: Double = 25,
     maximumGestureSessionDuration: TimeInterval? = 1,
+    maximumGestureIdleDuration: TimeInterval? = nil,
     maximumRawPointCount: Int = 256,
     eventSourceStartRetryDelays: [TimeInterval] = [0.25, 0.5, 1, 2, 4]
   ) throws -> Self {
@@ -60,6 +68,11 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
         throw ValidationError.invalidMaximumGestureSessionDuration
       }
     }
+    if let maximumGestureIdleDuration {
+      guard maximumGestureIdleDuration.isFinite, maximumGestureIdleDuration > 0 else {
+        throw ValidationError.invalidMaximumGestureIdleDuration
+      }
+    }
     guard maximumRawPointCount > 0 else {
       throw ValidationError.invalidMaximumRawPointCount
     }
@@ -73,6 +86,7 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
       minimumGestureStartAxisDistance: minimumGestureStartAxisDistance,
       minimumDirectionChangeAxisDistance: minimumDirectionChangeAxisDistance,
       maximumGestureSessionDuration: maximumGestureSessionDuration,
+      maximumGestureIdleDuration: maximumGestureIdleDuration,
       maximumRawPointCount: maximumRawPointCount,
       eventSourceStartRetryDelays: eventSourceStartRetryDelays
     )
@@ -82,12 +96,14 @@ public struct GestureRecognizerTuning: Equatable, Sendable {
     minimumGestureStartAxisDistance: Double,
     minimumDirectionChangeAxisDistance: Double,
     maximumGestureSessionDuration: TimeInterval?,
+    maximumGestureIdleDuration: TimeInterval?,
     maximumRawPointCount: Int,
     eventSourceStartRetryDelays: [TimeInterval]
   ) {
     self.minimumGestureStartAxisDistance = minimumGestureStartAxisDistance
     self.minimumDirectionChangeAxisDistance = minimumDirectionChangeAxisDistance
     self.maximumGestureSessionDuration = maximumGestureSessionDuration
+    self.maximumGestureIdleDuration = maximumGestureIdleDuration
     self.maximumRawPointCount = maximumRawPointCount
     self.eventSourceStartRetryDelays = eventSourceStartRetryDelays
   }

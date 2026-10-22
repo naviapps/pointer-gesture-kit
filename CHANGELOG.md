@@ -6,7 +6,11 @@ Released versions follow semantic versioning.
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Optional inactivity expiration alongside the total input duration limit. Changed pointer
+  locations extend inactivity; stationary events do not. The earlier enabled deadline wins
+  and preserves interrupted-input replay without emitting a match. Standard tuning is unchanged.
 
 ## [0.2.0] - 2026-07-12
 

@@ -1,37 +1,52 @@
 import Foundation
 
 extension GestureRecognizer {
+  private enum ExpirationTarget {
+    case pending(UUID)
+    case session(UUID)
+  }
+
   func schedulePendingButtonInputExpirationIfNeeded(forInputID inputID: UUID) {
-    guard let maximumGestureSessionDuration = tuning.maximumGestureSessionDuration else { return }
-
-    inputExpirationTask?.cancel()
-    inputExpirationTask = Task { @MainActor [weak self] in
-      do {
-        try await Task.sleep(
-          nanoseconds: GestureRecognizerTiming.taskSleepNanoseconds(
-            for: maximumGestureSessionDuration))
-      } catch {
-        return
-      }
-
-      self?.expirePendingButtonInputIfCurrentInputID(inputID)
-    }
+    scheduleInputExpiration(for: .pending(inputID))
   }
 
   func scheduleSessionExpirationIfNeeded(forSessionID sessionID: UUID) {
-    guard let maximumGestureSessionDuration = tuning.maximumGestureSessionDuration else { return }
+    scheduleInputExpiration(for: .session(sessionID))
+  }
 
+  private func scheduleInputExpiration(for target: ExpirationTarget) {
     inputExpirationTask?.cancel()
-    inputExpirationTask = Task { @MainActor [weak self] in
-      do {
-        try await Task.sleep(
-          nanoseconds: GestureRecognizerTiming.taskSleepNanoseconds(
-            for: maximumGestureSessionDuration))
-      } catch {
-        return
-      }
+    inputExpirationTask = nil
+    guard remainingDuration(for: target) != nil else { return }
 
-      self?.expireSessionIfCurrentSessionID(sessionID)
+    inputExpirationTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        guard let remaining = self?.remainingDuration(for: target) else { return }
+        if remaining <= 0 {
+          switch target {
+          case let .pending(id): self?.expirePendingButtonInputIfCurrentInputID(id)
+          case let .session(id): self?.expireSessionIfCurrentSessionID(id)
+          }
+          return
+        }
+        do {
+          try await Task.sleep(
+            nanoseconds: GestureRecognizerTiming.taskSleepNanoseconds(for: remaining))
+        } catch {
+          return
+        }
+      }
+    }
+  }
+
+  private func remainingDuration(for target: ExpirationTarget) -> TimeInterval? {
+    switch target {
+    case let .pending(id):
+      guard let pendingButtonInput, pendingButtonInput.inputID == id else { return nil }
+      return pendingButtonInput.timing.remainingDuration(tuning: tuning)
+    case let .session(id):
+      guard let session, session.sessionID == id else { return nil }
+      return session.timing.remainingDuration(tuning: tuning)
     }
   }
 

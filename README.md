@@ -375,3 +375,14 @@ Report vulnerabilities privately. See [SECURITY.md](SECURITY.md).
 ## License
 
 PointerGestureKit is released under the MIT License. See [LICENSE](LICENSE).
+
+### Deliberate drawing and inactivity
+
+The standard one-second session limit is unchanged. Hosts can separately opt into
+`GestureRecognizerTuning.validated(maximumGestureSessionDuration: 15,
+maximumGestureIdleDuration: 2)` to allow longer moving gestures with a bounded total
+duration. Only changed pointer locations refresh inactivity; stationary events do
+not. The earlier enabled deadline cancels input without emitting a match and uses
+the existing interrupted-input replay contract. Both limits accept `nil`. Tuning
+updates restart deadlines for current input. See the API catalog for timing and
+responsibility details.

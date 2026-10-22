@@ -170,12 +170,16 @@ public final class GestureRecognizer<Match: Sendable> {
     inputExpirationTask?.cancel()
     inputExpirationTask = nil
 
-    if let session {
+    if var session {
+      session.timing = GestureInputTiming()
+      self.session = session
       scheduleSessionExpirationIfNeeded(forSessionID: session.sessionID)
       return
     }
 
-    if let pendingButtonInput {
+    if var pendingButtonInput {
+      pendingButtonInput.timing = GestureInputTiming()
+      self.pendingButtonInput = pendingButtonInput
       schedulePendingButtonInputExpirationIfNeeded(forInputID: pendingButtonInput.inputID)
       return
     }

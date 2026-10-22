@@ -46,6 +46,9 @@ extension GestureRecognizer {
   ) {
     guard isReady, var currentSession = session else { return }
 
+    if currentSession.trace.tailPoint != next {
+      currentSession.timing.noteMovement()
+    }
     appendConsumedButtonPoint(next, to: &currentSession)
 
     if updateFallbackReplayPointIfGestureStopped(&currentSession, to: next) {

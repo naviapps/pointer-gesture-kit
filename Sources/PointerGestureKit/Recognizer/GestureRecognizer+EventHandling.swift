@@ -146,6 +146,7 @@ extension GestureRecognizer {
   private func appendPendingButtonInputPoint(_ point: GesturePoint) {
     guard var pendingInput = pendingButtonInput else { return }
     if pendingInput.consumedButtonPoints.last != point {
+      pendingInput.timing.noteMovement()
       pendingInput.consumedButtonPoints.append(point)
       trimConsumedButtonPoints(&pendingInput.consumedButtonPoints)
     }

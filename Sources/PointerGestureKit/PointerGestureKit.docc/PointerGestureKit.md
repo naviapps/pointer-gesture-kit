@@ -70,6 +70,20 @@ Keep observation tokens alive while observation is needed. Status and trace obse
 an initial snapshot. Cancellation or token release removes the observer. Stopping recognition
 cancels start retries and active capture; it can still emit replay requests for consumed input.
 
+## Input Deadlines
+
+The default tuning retains a one-second total session limit and no inactivity limit.
+Hosts can opt into `maximumGestureIdleDuration` to allow deliberate movement while
+canceling a stalled gesture. A changed pointer location refreshes only the inactivity
+deadline; duplicate stationary events do not. When both limits are enabled, the earlier
+deadline wins. Setting both to `nil` disables expiration. Expiration never emits a match
+and preserves the usual interrupted-input replay behavior.
+
+Timing uses a continuous clock and one expiration task per pending input or active
+session, rather than a new task per point. Updating tuning restarts enabled deadlines
+for current input. Promotion from pending input to a gesture starts the session deadlines.
+Host apps own the choice of limits, settings, and recovery UI.
+
 ## Recognition Pipeline
 
 The recognizer turns platform-neutral input into a match through a small fixed pipeline:
@@ -176,11 +190,12 @@ event-source adapters, or diagonal gesture directions.
 
 - ``GestureRecognizerTuning``
 - ``GestureRecognizerTuning/standard``
-- ``GestureRecognizerTuning/validated(minimumGestureStartAxisDistance:minimumDirectionChangeAxisDistance:maximumGestureSessionDuration:maximumRawPointCount:eventSourceStartRetryDelays:)``
+- ``GestureRecognizerTuning/validated(minimumGestureStartAxisDistance:minimumDirectionChangeAxisDistance:maximumGestureSessionDuration:maximumGestureIdleDuration:maximumRawPointCount:eventSourceStartRetryDelays:)``
 - ``GestureRecognizerTuning/ValidationError``
 - ``GestureRecognizerTuning/minimumGestureStartAxisDistance``
 - ``GestureRecognizerTuning/minimumDirectionChangeAxisDistance``
 - ``GestureRecognizerTuning/maximumGestureSessionDuration``
+- ``GestureRecognizerTuning/maximumGestureIdleDuration``
 - ``GestureRecognizerTuning/maximumRawPointCount``
 - ``GestureRecognizerTuning/eventSourceStartRetryDelays``
 - ``GestureRecognizer/updateTuning(_:)``

@@ -11,6 +11,7 @@ extension GestureRecognizer {
 
   struct GestureSession {
     var sessionID: UUID
+    var timing = GestureInputTiming()
     var startPoint: GesturePoint
     var trace: GestureSessionTraceState
     var recognition: GestureSessionRecognitionState
@@ -40,6 +41,7 @@ extension GestureRecognizer {
 
   struct PendingButtonInput {
     var inputID: UUID
+    var timing = GestureInputTiming()
     var startPoint: GesturePoint
     var consumedButtonPoints: [GesturePoint]
     var matcherCursor: GesturePatternMatcher<Match>?
