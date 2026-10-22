@@ -7,6 +7,7 @@ extension GestureRecognizer {
 
   func handleInputEvent(_ event: GestureInputEvent) -> GestureEventDisposition {
     guard isReady, event.location.isFinite else { return .passThrough }
+    expireInputIfNeeded()
 
     switch event.kind {
     case let .buttonDown(button):
@@ -87,7 +88,8 @@ extension GestureRecognizer {
         at: pendingInput.startPoint,
         consumedPoints: pendingInput.consumedButtonPoints,
         matcherCursor: pendingInput.matcherCursor,
-        isRecordingSession: pendingInput.isRecordingSession
+        isRecordingSession: pendingInput.isRecordingSession,
+        inputTiming: pendingInput.timing
       )
       pendingButtonInput = nil
     }

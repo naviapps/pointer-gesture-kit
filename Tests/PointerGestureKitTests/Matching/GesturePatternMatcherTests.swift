@@ -58,6 +58,29 @@ final class GesturePatternMatcherTests: XCTestCase {
     XCTAssertTrue(result)
   }
 
+  func testDeepPatternsRegisterMatchAndReleaseWithoutRecursiveStackGrowth() {
+    let pattern = (0..<20_000).map { $0.isMultiple(of: 2) ? GestureDirection.down : .right }
+    var matcher = GesturePatternMatcher<Int>()
+    XCTAssertTrue(matcher.register(pattern: pattern, match: 42))
+    XCTAssertEqual(matcher.match(pattern: pattern), 42)
+    XCTAssertNil(matcher.match(pattern: Array(pattern.dropLast())))
+    XCTAssertTrue(matcher.register(pattern: [.left], match: 7))
+    XCTAssertEqual(matcher.match(pattern: [.left]), 7)
+    XCTAssertEqual(matcher.match(pattern: pattern), 42)
+  }
+
+  func testMatcherCopiesPreserveExistingSessionSnapshotsWhenHostUpdatesPatterns() {
+    var matcher = GesturePatternMatcher<String>()
+    matcher.register(pattern: [.down], match: "original")
+    let captured = matcher
+    matcher.register(pattern: [.down], match: "replacement")
+    matcher.register(pattern: [.down, .right], match: "new")
+    XCTAssertEqual(captured.match(pattern: [.down]), "original")
+    XCTAssertNil(captured.match(pattern: [.down, .right]))
+    XCTAssertEqual(matcher.match(pattern: [.down]), "replacement")
+    XCTAssertEqual(matcher.match(pattern: [.down, .right]), "new")
+  }
+
   private struct NonEquatableMatch: Sendable {
     let id: Int
   }

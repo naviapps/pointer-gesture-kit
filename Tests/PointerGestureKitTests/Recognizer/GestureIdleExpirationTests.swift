@@ -3,6 +3,67 @@ import XCTest
 @testable import PointerGestureKit
 
 final class GestureIdleExpirationTests: XCTestCase {
+  @MainActor
+  func testPromotionPreservesTheButtonInputTotalDeadline() throws {
+    let source = GestureEventSourceDouble(startResult: true)
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: source,
+      configuration: makeGestureRecognizerTestConfiguration(
+        tuning: try .validated(maximumGestureSessionDuration: 15, maximumGestureIdleDuration: 1)))
+    recognizer.isRecordingModeEnabled = true
+    recognizer.start()
+    _ = source.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero))
+    let originalStart = ContinuousClock.now.advanced(by: .milliseconds(-500))
+    recognizer.pendingButtonInput?.timing = GestureInputTiming(now: originalStart)
+    _ = source.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 20, y: 0)))
+    XCTAssertEqual(recognizer.session?.timing.startedAt, originalStart)
+    recognizer.stop()
+  }
+
+  @MainActor
+  func testExpiredActiveInputCannotMatchBeforeTheExpirationTaskGetsToRun() throws {
+    let source = GestureEventSourceDouble(startResult: true)
+    var matcher = GesturePatternMatcher<UUID>()
+    matcher.register(pattern: [.right], match: UUID())
+    var matches = 0
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: source,
+      configuration: makeGestureRecognizerTestConfiguration(
+        makeMatcher: { _ in matcher }, onMatch: { _ in matches += 1 },
+        tuning: try .validated(maximumGestureSessionDuration: 1)))
+    recognizer.start()
+    _ = source.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero))
+    _ = source.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 20, y: 0)))
+    recognizer.session?.timing = GestureInputTiming(now: .now.advanced(by: .seconds(-2)))
+    _ = source.send(
+      makeGestureInputEvent(kind: .buttonUp(.secondary), location: .init(x: 20, y: 0)))
+    XCTAssertEqual(matches, 0)
+    XCTAssertEqual(recognizer.snapshot.status.lastFailure, .gestureSessionExpired)
+    XCTAssertNil(recognizer.session)
+    recognizer.stop()
+  }
+
+  @MainActor
+  func testExpiredPendingInputCannotPromoteBeforeTheExpirationTaskGetsToRun() throws {
+    let source = GestureEventSourceDouble(startResult: true)
+    let recognizer = GestureRecognizer<UUID>(
+      eventSource: source,
+      configuration: makeGestureRecognizerTestConfiguration(
+        tuning: try .validated(maximumGestureSessionDuration: 1)))
+    recognizer.isRecordingModeEnabled = true
+    recognizer.start()
+    _ = source.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero))
+    recognizer.pendingButtonInput?.timing = GestureInputTiming(now: .now.advanced(by: .seconds(-2)))
+    _ = source.send(
+      makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .init(x: 20, y: 0)))
+    XCTAssertFalse(recognizer.snapshot.status.isCapturingGesture)
+    XCTAssertEqual(recognizer.snapshot.status.lastFailure, .gestureSessionExpired)
+    XCTAssertNil(recognizer.session)
+    recognizer.stop()
+  }
+
   func testIdleDurationRejectsNonPositiveAndNonFiniteValues() {
     for value: Double in [0, -1, .nan, .infinity, -.infinity] {
       XCTAssertThrowsError(try GestureRecognizerTuning.validated(maximumGestureIdleDuration: value))
@@ -53,7 +114,7 @@ final class GestureIdleExpirationTests: XCTestCase {
     recognizer.isRecordingModeEnabled = true
     recognizer.start()
     _ = source.send(makeGestureInputEvent(kind: .buttonDown(.secondary), location: .zero))
-    let old = ContinuousClock.now.advanced(by: .seconds(-10))
+    let old = ContinuousClock.now.advanced(by: .milliseconds(-1))
     recognizer.pendingButtonInput?.timing = GestureInputTiming(now: old)
     _ = source.send(makeGestureInputEvent(kind: .buttonMoved(.secondary), location: .zero))
     XCTAssertEqual(recognizer.pendingButtonInput?.timing.lastMovementAt, old)
@@ -83,7 +144,7 @@ final class GestureIdleExpirationTests: XCTestCase {
       let recognizer = GestureRecognizer<UUID>(
         eventSource: source,
         configuration: makeGestureRecognizerTestConfiguration(
-          makeMatcher: { _ in matcher }, onReplayRequested: { replays.append($0) },
+          makeMatcher: { [matcher] _ in matcher }, onReplayRequested: { replays.append($0) },
           onMatch: { _ in matches += 1 },
           tuning: try .validated(
             maximumGestureSessionDuration: nil, maximumGestureIdleDuration: 0.01)))

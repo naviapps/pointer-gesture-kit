@@ -3,14 +3,19 @@
 /// Build a matcher up front with ``register(pattern:match:)`` and pass the finished value to a
 /// ``GestureRecognizer``. Use ``match(pattern:)`` to verify configured patterns in host-app tests.
 public struct GesturePatternMatcher<Match: Sendable>: Sendable {
-  private var children: [GestureDirection: GesturePatternMatcher<Match>] = [:]
-  private var terminalMatch: Match?
+  private struct Node: Sendable {
+    var children: [GestureDirection: Int] = [:]
+    var terminalMatch: Match?
+  }
+
+  private var nodes: [Node] = [Node()]
+  private var root = 0
 
   /// Creates an empty matcher.
   public init() {}
 
   var isEmpty: Bool {
-    children.isEmpty && terminalMatch == nil
+    nodes[root].children.isEmpty && nodes[root].terminalMatch == nil
   }
 
   /// Registers a direction pattern with an app-owned match value.
@@ -23,7 +28,18 @@ public struct GesturePatternMatcher<Match: Sendable>: Sendable {
   @discardableResult
   public mutating func register(pattern: [GestureDirection], match: Match) -> Bool {
     guard !pattern.isEmpty else { return false }
-    insert(pattern: ArraySlice(pattern), match: match)
+    var cursor = root
+    for direction in pattern {
+      if let child = nodes[cursor].children[direction] {
+        cursor = child
+      } else {
+        let child = nodes.count
+        nodes.append(Node())
+        nodes[cursor].children[direction] = child
+        cursor = child
+      }
+    }
+    nodes[cursor].terminalMatch = match
     return true
   }
 
@@ -32,37 +48,22 @@ public struct GesturePatternMatcher<Match: Sendable>: Sendable {
   /// Returns `nil` when the pattern is empty, incomplete, or unregistered.
   public func match(pattern: [GestureDirection]) -> Match? {
     guard !pattern.isEmpty else { return nil }
-    return match(pattern: ArraySlice(pattern))
-  }
-
-  private mutating func insert(pattern: ArraySlice<GestureDirection>, match: Match) {
-    guard let first = pattern.first else { return }
-
-    var child = children[first] ?? GesturePatternMatcher<Match>()
-    let remaining = pattern.dropFirst()
-    if remaining.isEmpty {
-      child.terminalMatch = match
-    } else {
-      child.insert(pattern: remaining, match: match)
+    var cursor = root
+    for direction in pattern {
+      guard let child = nodes[cursor].children[direction] else { return nil }
+      cursor = child
     }
-    children[first] = child
+    return nodes[cursor].terminalMatch
   }
 
   func advanced(to direction: GestureDirection) -> GesturePatternMatcher<Match>? {
-    children[direction]
+    guard let child = nodes[root].children[direction] else { return nil }
+    var cursor = self
+    cursor.root = child
+    return cursor
   }
 
   func completedMatch() -> Match? {
-    terminalMatch
-  }
-
-  private func match(pattern: ArraySlice<GestureDirection>) -> Match? {
-    guard let first = pattern.first, let child = children[first] else { return nil }
-
-    let remaining = pattern.dropFirst()
-    if remaining.isEmpty {
-      return child.terminalMatch
-    }
-    return child.match(pattern: remaining)
+    nodes[root].terminalMatch
   }
 }

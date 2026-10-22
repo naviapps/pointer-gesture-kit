@@ -10,11 +10,13 @@ extension GestureRecognizer {
     at point: GesturePoint,
     consumedPoints: [GesturePoint],
     matcherCursor: GesturePatternMatcher<Match>?,
-    isRecordingSession: Bool
+    isRecordingSession: Bool,
+    inputTiming: GestureInputTiming
   ) {
     let sessionID = UUID()
     let newSession = GestureSession(
       sessionID: sessionID,
+      timing: inputTiming,
       startPoint: point,
       trace: GestureSessionTraceState(
         rawPoints: [point],

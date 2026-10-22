@@ -45,7 +45,10 @@ func makeGestureMatcher() -> GesturePatternMatcher<AppCommand> {
 }
 ```
 
-Pattern matching is exact. During normal recognition, trace visibility begins when the current
+Pattern matching is exact. Node storage and lookup are iterative so deep host-provided
+patterns do not grow the call stack during registration, matching or teardown. Matcher
+copies retain value semantics: later host registrations cannot change a captured session.
+During normal recognition, trace visibility begins when the current
 direction sequence is a valid matcher prefix; completed matches still require an exact registered
 pattern. Host apps validate settings-level conflicts before building a matcher.
 Use ``GestureRecognizerConfiguration`` to provide policy callbacks, replay handling, match handling,
@@ -81,7 +84,9 @@ and preserves the usual interrupted-input replay behavior.
 
 Timing uses a continuous clock and one expiration task per pending input or active
 session, rather than a new task per point. Updating tuning restarts enabled deadlines
-for current input. Promotion from pending input to a gesture starts the session deadlines.
+for current input. Promotion from pending input to a gesture preserves the button-input
+start time, so it cannot extend the total deadline. Deadlines are also checked during
+input delivery: a delayed timer cannot permit an expired release to emit a match.
 Host apps own the choice of limits, settings, and recovery UI.
 
 ## Recognition Pipeline

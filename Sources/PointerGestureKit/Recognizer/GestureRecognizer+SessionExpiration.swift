@@ -6,6 +6,19 @@ extension GestureRecognizer {
     case session(UUID)
   }
 
+  /// Check during input delivery as well as from the timer: the main actor may not have
+  /// resumed the sleeping task before a queued move or release arrives.
+  func expireInputIfNeeded() {
+    if let pendingButtonInput,
+      pendingButtonInput.timing.remainingDuration(tuning: tuning) == 0
+    {
+      expirePendingButtonInputIfCurrentInputID(pendingButtonInput.inputID)
+    }
+    if let session, session.timing.remainingDuration(tuning: tuning) == 0 {
+      expireSessionIfCurrentSessionID(session.sessionID)
+    }
+  }
+
   func schedulePendingButtonInputExpirationIfNeeded(forInputID inputID: UUID) {
     scheduleInputExpiration(for: .pending(inputID))
   }
@@ -54,6 +67,7 @@ extension GestureRecognizer {
   private func expirePendingButtonInputIfCurrentInputID(_ inputID: UUID) {
     guard let pendingButtonInput, pendingButtonInput.inputID == inputID else { return }
 
+    inputExpirationTask?.cancel()
     inputExpirationTask = nil
     lastFailure = .gestureSessionExpired
     requestInterruptedButtonInputReplayIfNeeded()
@@ -65,6 +79,7 @@ extension GestureRecognizer {
   private func expireSessionIfCurrentSessionID(_ sessionID: UUID) {
     guard let activeSession = session, activeSession.sessionID == sessionID else { return }
 
+    inputExpirationTask?.cancel()
     inputExpirationTask = nil
     lastFailure = .gestureSessionExpired
     requestInterruptedButtonInputReplayIfNeeded()

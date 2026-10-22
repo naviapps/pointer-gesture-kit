@@ -384,5 +384,7 @@ maximumGestureIdleDuration: 2)` to allow longer moving gestures with a bounded t
 duration. Only changed pointer locations refresh inactivity; stationary events do
 not. The earlier enabled deadline cancels input without emitting a match and uses
 the existing interrupted-input replay contract. Both limits accept `nil`. Tuning
-updates restart deadlines for current input. See the API catalog for timing and
+updates restart deadlines for current input. Promotion into active recognition keeps
+the original button-input start time. Input delivery checks expiration even if the
+timer task has not resumed. See the API catalog for timing and
 responsibility details.

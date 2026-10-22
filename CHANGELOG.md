@@ -12,6 +12,16 @@ Released versions follow semantic versioning.
   locations extend inactivity; stationary events do not. The earlier enabled deadline wins
   and preserves interrupted-input replay without emitting a match. Standard tuning is unchanged.
 
+### Fixed
+
+- Use flat matcher nodes and iterative traversal so deeply nested host patterns do
+  not grow the call stack during registration, lookup or teardown. Preserve exact
+  matches, shared prefixes, duplicate replacement and captured value snapshots.
+
+- Preserve the total button-input deadline when pending movement becomes an active
+  gesture. Check expiration while delivering input too, so a queued release cannot
+  match after the deadline merely because the timer task has not resumed yet.
+
 ## [0.2.0] - 2026-07-12
 
 ### Changed
